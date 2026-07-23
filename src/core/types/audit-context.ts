@@ -3,6 +3,7 @@ import type { ConsentArtifact } from './consent.js';
 import type { Target } from './target.js';
 import type { ScannerResult } from './scanner.js';
 import type { Finding } from './finding.js';
+import type { Insight } from './insight.js';
 import type { ScoreSummary } from './score.js';
 
 export type AuditStatus = 'completed' | 'partial' | 'failed';
@@ -38,6 +39,9 @@ export interface AuditContext {
 
   setScoreSummary(scores: ScoreSummary): void;
   getScoreSummary(): ScoreSummary | undefined;
+
+  setInsights(insights: readonly Insight[]): void;
+  getInsights(): readonly Insight[] | undefined;
 }
 
 export interface AuditContextInit {
@@ -66,6 +70,7 @@ export class DefaultAuditContext implements AuditContext {
   private enrichments = new Map<string, unknown>();
   private findings: Finding[] = [];
   private scoreSummary: ScoreSummary | undefined;
+  private insights: readonly Insight[] | undefined;
 
   constructor(init: AuditContextInit) {
     this.target = init.target;
@@ -135,5 +140,16 @@ export class DefaultAuditContext implements AuditContext {
 
   getScoreSummary(): ScoreSummary | undefined {
     return this.scoreSummary;
+  }
+
+  setInsights(insights: readonly Insight[]): void {
+    if (this.insights !== undefined) {
+      throw new Error('AuditContext.insights is write-once and has already been set.');
+    }
+    this.insights = insights;
+  }
+
+  getInsights(): readonly Insight[] | undefined {
+    return this.insights;
   }
 }

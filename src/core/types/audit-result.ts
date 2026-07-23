@@ -3,6 +3,7 @@ import type { ConsentArtifact } from './consent.js';
 import type { Target } from './target.js';
 import type { ScannerResult } from './scanner.js';
 import type { Finding } from './finding.js';
+import type { Insight } from './insight.js';
 import type { ScoreSummary } from './score.js';
 import type { AuditStatus } from './audit-context.js';
 
@@ -23,6 +24,7 @@ export interface AuditResult {
   readonly isWordPress: boolean;
   readonly scannerResults: readonly ScannerResult[];
   readonly findings: readonly Finding[];
+  readonly insights: readonly Insight[];
   readonly scores?: ScoreSummary;
   /** e.g. "PageSpeed enrichment unavailable" — surfaced in the report's limitations section. */
   readonly limitations: string[];

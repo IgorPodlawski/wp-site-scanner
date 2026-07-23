@@ -24,6 +24,7 @@ import {
   WORDPRESS_ORG_CORE_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
 import { calculateScores } from '../../analysis/scoring-engine.js';
+import { generateInsights } from '../../analysis/insight-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
 import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
@@ -135,6 +136,9 @@ export class AuditOrchestrator {
     const scores = calculateScores(findings);
     context.setScoreSummary(scores);
 
+    const insights = generateInsights(findings);
+    context.setInsights(insights);
+
     const result: AuditResult = {
       id: randomUUID(),
       target,
@@ -147,6 +151,7 @@ export class AuditOrchestrator {
       isWordPress,
       scannerResults: context.getScannerResults(),
       findings,
+      insights,
       scores,
       limitations,
     };

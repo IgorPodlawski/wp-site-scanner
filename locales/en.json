@@ -53,5 +53,12 @@
   "score.category.performance": "Performance",
   "score.category.seo": "SEO",
   "score.category.infrastructure": "Infrastructure",
-  "score.category.overall": "Overall"
+  "score.category.overall": "Overall",
+
+  "insight.priority": "This audit identified {{count}} issue(s) with a significant potential impact that are worth prioritizing.",
+  "insight.outdatedComponents": "{{count}} outdated component(s) were found (WordPress core, a plugin, or a theme), which may increase maintenance and security risk.",
+  "insight.missingSecurityHeaders": "{{count}} recommended security header(s) are missing from the site's responses — these are typically inexpensive to add and reduce common attack surface.",
+  "insight.infoDisclosure": "The server discloses some technical details in its HTTP headers ({{count}} instance(s)) that could help an attacker fingerprint the technology stack.",
+  "insight.tlsConfiguration": "The site's TLS/HTTPS configuration has {{count}} area(s) that could be improved.",
+  "insight.exposedEndpoints": "{{count}} administrative or diagnostic endpoint(s) appear to be publicly reachable and may be worth restricting."
 }
