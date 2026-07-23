@@ -1,27 +1,60 @@
 import type {
+  CategoryScore,
   Finding,
+  FindingCategory,
   FindingConfidence,
   FindingSeverity,
   ScoreSummary,
 } from '../core/types/index.js';
-import { NotImplementedError } from '../core/errors.js';
 
 /**
  * The single, reviewable place deduction amounts live (per CLAUDE.md:
- * "keep the deduction table explicit and in one place"). Values are
- * placeholders (0) — real numbers are Phase 2 scoring work, not
- * architecture. No invented mathematical complexity: scoring only
- * prioritizes, it does not need to be more elaborate than this table.
+ * "keep the deduction table explicit and in one place"). Monotonic in both
+ * dimensions — worse severity and higher confidence both deduct more — but
+ * otherwise arbitrary hand-picked integers. No invented mathematical
+ * complexity: scoring only prioritizes, it does not need a formula.
  */
 export const DEDUCTION_TABLE: Record<FindingSeverity, Record<FindingConfidence, number>> = {
-  info: { inferred: 0, corroborated: 0, confirmed: 0 },
-  low: { inferred: 0, corroborated: 0, confirmed: 0 },
-  medium: { inferred: 0, corroborated: 0, confirmed: 0 },
-  high: { inferred: 0, corroborated: 0, confirmed: 0 },
-  critical: { inferred: 0, corroborated: 0, confirmed: 0 },
+  info: { inferred: 1, corroborated: 1, confirmed: 2 },
+  low: { inferred: 3, corroborated: 4, confirmed: 5 },
+  medium: { inferred: 6, corroborated: 8, confirmed: 10 },
+  high: { inferred: 10, corroborated: 14, confirmed: 18 },
+  critical: { inferred: 15, corroborated: 22, confirmed: 30 },
 };
 
-export function calculateScores(_findings: readonly Finding[]): ScoreSummary {
-  // TODO (Phase 2): start each category at 100, reduce via DEDUCTION_TABLE[severity][confidence].
-  throw new NotImplementedError('calculateScores (Phase 2 feature work)');
+const SCORED_CATEGORIES: readonly FindingCategory[] = [
+  'security',
+  'maintenance',
+  'performance',
+  'seo',
+  'infrastructure',
+];
+
+/**
+ * Each category and 'overall' start at 100. A finding's deduction reduces
+ * its own category; 'overall' is reduced by every finding regardless of
+ * category, so it reflects the totality of what was found while the
+ * per-category breakdown shows where it concentrates. A category's
+ * displayed value is clamped at 0, but every deduction is still recorded
+ * for review even past that floor.
+ */
+export function calculateScores(findings: readonly Finding[]): ScoreSummary {
+  const categories = {} as Record<FindingCategory, CategoryScore>;
+  for (const category of SCORED_CATEGORIES) {
+    categories[category] = { category, value: 100, deductions: [] };
+  }
+
+  let overall = 100;
+
+  for (const finding of findings) {
+    const amount = DEDUCTION_TABLE[finding.severity][finding.confidence];
+
+    const categoryScore = categories[finding.category];
+    categoryScore.deductions.push({ findingId: finding.id, amount });
+    categoryScore.value = Math.max(0, categoryScore.value - amount);
+
+    overall = Math.max(0, overall - amount);
+  }
+
+  return { categories: SCORED_CATEGORIES.map((category) => categories[category]), overall };
 }

@@ -84,6 +84,7 @@ describe('AuditOrchestrator.run', () => {
       'wordpress-detector',
       'core-version-scanner',
     ]);
+    expect(result.scores?.overall).toBe(100);
     expect(saveAuditResult).toHaveBeenCalledWith(result);
   });
 
