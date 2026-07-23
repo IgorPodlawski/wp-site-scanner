@@ -49,6 +49,22 @@ function checkIpv4(ip: string): SsrfCheckResult {
   return { safe: true };
 }
 
+/**
+ * Checks a raw, already-resolved IP address (as opposed to `isSafeToFetch`,
+ * which checks a URL). Used by the http-client to re-validate a hostname's
+ * resolved address before connecting, closing the DNS-rebinding gap noted
+ * below.
+ */
+export function isSafeIpAddress(ip: string): SsrfCheckResult {
+  if (net.isIPv4(ip)) {
+    return checkIpv4(ip);
+  }
+  if (net.isIPv6(ip)) {
+    return checkIpv6(ip);
+  }
+  return { safe: false, reason: `"${ip}" is not a valid IP address.` };
+}
+
 function checkIpv6(ip: string): SsrfCheckResult {
   const normalized = ip.toLowerCase();
 
@@ -84,10 +100,9 @@ function isLocalhostHostname(hostname: string): boolean {
  * Rejects requests to localhost, private IPv4/IPv6, link-local addresses
  * (including the 169.254.169.254 cloud metadata endpoint), and disallowed
  * schemes. Only handles literal IP addresses and the `localhost` hostname —
- * a hostname that *resolves* to a private address (DNS rebinding) requires
- * actual DNS resolution and is a TODO for the real http-client, which must
- * re-run this check against the resolved address before connecting and on
- * every redirect hop.
+ * a hostname that *resolves* to a private address (DNS rebinding) is not
+ * caught here. The http-client re-runs `isSafeIpAddress` against the actually
+ * resolved address before connecting and on every redirect hop.
  */
 export function isSafeToFetch(url: URL): SsrfCheckResult {
   if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
@@ -100,12 +115,8 @@ export function isSafeToFetch(url: URL): SsrfCheckResult {
     return { safe: false, reason: `Hostname "${hostname}" refers to localhost.` };
   }
 
-  if (net.isIPv4(hostname)) {
-    return checkIpv4(hostname);
-  }
-
-  if (net.isIPv6(hostname)) {
-    return checkIpv6(hostname);
+  if (net.isIPv4(hostname) || net.isIPv6(hostname)) {
+    return isSafeIpAddress(hostname);
   }
 
   return { safe: true };
