@@ -13,6 +13,14 @@ interface EndpointProbeResult {
   error?: string;
 }
 
+export interface EndpointScannerData {
+  readme: EndpointProbeResult;
+  restApiUsers: { exists: boolean; usernames?: string[]; error?: string };
+  xmlrpc: { enabled: boolean; error?: string };
+  directoryListing: { listingDetected: boolean; error?: string };
+  configBackups: Array<{ path: string; exists: boolean; error?: string }>;
+}
+
 /**
  * Fetches `path` and reports whether it exists, without letting one probe's
  * network failure (timeout, DNS, etc.) take down the whole scanner — each
@@ -58,10 +66,18 @@ export class EndpointScanner implements Scanner {
       Promise.all(CONFIG_BACKUP_PATHS.map((path) => this.probeConfigBackup(origin, path))),
     ]);
 
+    const data: EndpointScannerData = {
+      readme,
+      restApiUsers,
+      xmlrpc,
+      directoryListing,
+      configBackups,
+    };
+
     return {
       scannerName: this.name,
       status: 'ok',
-      data: { readme, restApiUsers, xmlrpc, directoryListing, configBackups },
+      data,
       durationMs: Date.now() - startedAt,
     };
   }

@@ -12,6 +12,14 @@ const SECURITY_HEADERS = [
 
 const INFO_DISCLOSURE_HEADERS = ['server', 'x-powered-by'] as const;
 
+export type SecurityHeaderName = (typeof SECURITY_HEADERS)[number];
+export type InfoDisclosureHeaderName = (typeof INFO_DISCLOSURE_HEADERS)[number];
+
+export interface HeaderScannerData {
+  securityHeaders: Record<SecurityHeaderName, string | undefined>;
+  infoDisclosureHeaders: Record<InfoDisclosureHeaderName, string | undefined>;
+}
+
 /** Checks HTTP security headers (CSP, HSTS, X-Frame-Options, etc.) from the already-fetched response. */
 export class HeaderScanner implements Scanner {
   readonly name = 'header-scanner';
@@ -36,11 +44,11 @@ export class HeaderScanner implements Scanner {
     };
   }
 
-  private pickHeaders(
+  private pickHeaders<Name extends string>(
     response: HttpResponse,
-    names: readonly string[],
-  ): Record<string, string | undefined> {
-    const picked: Record<string, string | undefined> = {};
+    names: readonly Name[],
+  ): Record<Name, string | undefined> {
+    const picked = {} as Record<Name, string | undefined>;
     for (const name of names) {
       picked[name] = response.headers[name];
     }

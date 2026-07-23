@@ -17,6 +17,7 @@ import { DefaultAuditContext } from '../types/audit-context.js';
 import { createFinding } from '../types/finding.js';
 import { AuditFailureError, MissingConsentError } from '../errors.js';
 import { saveAuditResult } from '../../storage/json-store.js';
+import { generateFindings } from '../../analysis/finding-engine.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
 
@@ -70,12 +71,12 @@ export function resolveAuthorizationMode(
 
 /**
  * Coordinates the audit. Does NOT perform technical analysis — that is the
- * scanners' job. Runs scanners in registration order (see scanner-registry.ts,
- * which lists them in pipeline order), short-circuiting after
- * wordpress-detector if the target isn't WordPress. Findings beyond the
- * "not WordPress" case, scoring, sales insights, enrichment and HTML/PDF
- * reports are later phases (see CLAUDE.md "Roadmap") — this wires the
- * scanner layer through to a persisted JSON AuditResult.
+ * scanners' and finding engine's job. Runs scanners in registration order
+ * (see scanner-registry.ts, which lists them in pipeline order),
+ * short-circuiting after wordpress-detector if the target isn't WordPress.
+ * Scoring, sales insights, external enrichment and HTML/PDF reports are
+ * later phases (see CLAUDE.md "Roadmap") — this wires scanners and the
+ * finding engine through to a persisted JSON AuditResult.
  */
 export class AuditOrchestrator {
   constructor(
@@ -106,7 +107,9 @@ export class AuditOrchestrator {
     const limitations = await this.runScanners(scanners, context);
 
     const isWordPress = context.isWordPress() ?? false;
-    const findings: Finding[] = isWordPress ? [] : [this.buildNotWordPressFinding(target)];
+    const findings: Finding[] = isWordPress
+      ? generateFindings(context)
+      : [this.buildNotWordPressFinding(target)];
     const status: AuditStatus = limitations.length > 0 ? 'partial' : 'completed';
 
     const result: AuditResult = {
