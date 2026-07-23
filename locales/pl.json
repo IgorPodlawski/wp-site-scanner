@@ -1,0 +1,17 @@
+{
+  "cli.audit.starting": "Rozpoczynanie audytu ({{mode}}) dla {{target}}...",
+  "cli.audit.notImplemented": "Proces audytu nie jest jeszcze zaimplementowany (jedynie szkielet architektury).",
+  "cli.batch.notImplemented": "Tryb wsadowy (batch) nie jest jeszcze zaimplementowany (planowany na Fazę 3).",
+  "cli.history.notImplemented": "Przeglądanie historii nie jest jeszcze zaimplementowane (planowane na Fazę 3).",
+
+  "report.disclaimer": "Ten audyt opiera się wyłącznie na publicznie dostępnych informacjach.",
+  "report.disclaimer.consent": "Ten audyt został przeprowadzony za wyraźną zgodą udzieloną dnia {{timestamp}} dla domeny {{domain}}.",
+  "report.summary.title": "Podsumowanie oceny jakości WordPress",
+
+  "score.category.security": "Bezpieczeństwo",
+  "score.category.maintenance": "Utrzymanie",
+  "score.category.performance": "Wydajność",
+  "score.category.seo": "SEO",
+  "score.category.infrastructure": "Infrastruktura",
+  "score.category.overall": "Ogólny"
+}

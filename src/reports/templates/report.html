@@ -1,0 +1,18 @@
+<!-- TODO (Phase 1): build the real PDF-friendly report template.
+     PDF is a render of this same template (Phase 4), so keep layout/CSS
+     print-friendly from the start: avoid fixed viewport-height assumptions,
+     use print-safe units, avoid unprintable interactive elements.
+
+     Named regions to fill in (currently placeholders, not a wired templating
+     engine — engine choice, e.g. Handlebars/Eta, is Phase 1 feature work):
+       {{summary}}      - audit summary (target, mode, profile, status, dates)
+       {{scores}}       - ScoreSummary by category
+       {{findings}}     - Finding list with severity/confidence/evidence
+       {{plugins}}      - detected plugins
+       {{theme}}        - detected theme
+       {{recommendations}} - per-finding recommendations
+       {{salesInsights}}   - evidence-based sales insights
+       {{limitations}}     - degraded/partial enrichment notes
+       {{disclaimer}}       - public-information-only disclaimer
+       {{consentArtifact}}  - audit-mode consent record, when present
+-->

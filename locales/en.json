@@ -1,0 +1,17 @@
+{
+  "cli.audit.starting": "Starting audit for {{target}} ({{mode}} mode)...",
+  "cli.audit.notImplemented": "Audit pipeline is not yet implemented (architecture scaffold only).",
+  "cli.batch.notImplemented": "Batch mode is not yet implemented (planned for Phase 3).",
+  "cli.history.notImplemented": "History lookup is not yet implemented (planned for Phase 3).",
+
+  "report.disclaimer": "This audit is based only on publicly available information.",
+  "report.disclaimer.consent": "This audit was performed under explicit authorization granted on {{timestamp}} for {{domain}}.",
+  "report.summary.title": "WordPress Quality Assessment Summary",
+
+  "score.category.security": "Security",
+  "score.category.maintenance": "Maintenance",
+  "score.category.performance": "Performance",
+  "score.category.seo": "SEO",
+  "score.category.infrastructure": "Infrastructure",
+  "score.category.overall": "Overall"
+}

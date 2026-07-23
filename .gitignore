@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+data/cache/*
+!data/cache/.gitkeep
+data/audits/*
+!data/audits/.gitkeep
+reports/*
+!reports/.gitkeep
+coverage/
+*.log
