@@ -25,3 +25,11 @@ export function resolveReportsDir(): string {
 export function auditResultPath(domain: string, timestamp: string): string {
   return path.join(resolveAuditsDir(), domain, `${timestamp}.json`);
 }
+
+/** Derives the on-disk path for a given result — the one place `finishedAt` becomes a filename-safe timestamp. */
+export function auditResultPathForResult(result: {
+  target: { domain: string };
+  finishedAt: string;
+}): string {
+  return auditResultPath(result.target.domain, result.finishedAt.replace(/[:.]/g, '-'));
+}

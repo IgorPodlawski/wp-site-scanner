@@ -9,6 +9,7 @@ import { createScanners } from '../../scanners/scanner-registry.js';
 import { loadConfig } from '../../config/load-config.js';
 import { createLogger } from '../../utils/logger.js';
 import { AuditFailureError } from '../../core/errors.js';
+import { auditResultPathForResult } from '../../storage/paths.js';
 
 const auditOptionsSchema = z.object({
   profile: z.enum(['quick', 'standard', 'deep']).default('standard'),
@@ -45,14 +46,20 @@ export function registerAuditCommand(program: Command): void {
       const orchestrator = new AuditOrchestrator(createScanners(config), config, logger);
 
       try {
-        await orchestrator.run(request);
+        const result = await orchestrator.run(request);
+        const savedPath = auditResultPathForResult(result);
+        printMessage('cli.audit.done', {
+          status: result.status,
+          target: result.target.domain,
+          path: savedPath,
+        });
       } catch (error) {
         if (error instanceof AuditFailureError) {
           printError(error.message);
           process.exitCode = 1;
           return;
         }
-        printMessage('cli.audit.notImplemented');
+        throw error;
       }
     });
 }

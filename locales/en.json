@@ -1,5 +1,6 @@
 {
   "cli.audit.starting": "Starting audit for {{target}} ({{mode}} mode)...",
+  "cli.audit.done": "Audit {{status}} for {{target}} — saved to {{path}}",
   "cli.audit.notImplemented": "Audit pipeline is not yet implemented (architecture scaffold only).",
   "cli.batch.notImplemented": "Batch mode is not yet implemented (planned for Phase 3).",
   "cli.history.notImplemented": "History lookup is not yet implemented (planned for Phase 3).",
@@ -7,6 +8,9 @@
   "report.disclaimer": "This audit is based only on publicly available information.",
   "report.disclaimer.consent": "This audit was performed under explicit authorization granted on {{timestamp}} for {{domain}}.",
   "report.summary.title": "WordPress Quality Assessment Summary",
+
+  "finding.notWordpress.evidence": "No WordPress signals (generator meta tag, /wp-content/ or /wp-includes/ paths, REST API discovery link) were found on the homepage of {{domain}}.",
+  "finding.notWordpress.recommendation": "No further action — this tool only assesses WordPress sites.",
 
   "score.category.security": "Security",
   "score.category.maintenance": "Maintenance",

@@ -1,15 +1,22 @@
+import { randomUUID } from 'node:crypto';
 import type {
   Scanner,
   AuthorizationMode,
   ConsentArtifact,
   Target,
   AuditResult,
+  AuditStatus,
+  AuditContext,
+  Finding,
 } from '../types/index.js';
 import type { AuditRequest } from './audit-request.js';
 import type { AppConfig } from '../../config/types.js';
 import type { Logger } from '../../utils/logger.js';
 import { buildTarget } from '../types/target.js';
-import { MissingConsentError, NotImplementedError } from '../errors.js';
+import { DefaultAuditContext } from '../types/audit-context.js';
+import { createFinding } from '../types/finding.js';
+import { AuditFailureError, MissingConsentError } from '../errors.js';
+import { saveAuditResult } from '../../storage/json-store.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
 
@@ -63,11 +70,12 @@ export function resolveAuthorizationMode(
 
 /**
  * Coordinates the audit. Does NOT perform technical analysis — that is the
- * scanners' job. See CLAUDE.md "Audit pipeline" for the full 19-step
- * sequence this will eventually run; only the pure, I/O-free steps
- * (authorization resolution, scanner filtering) are implemented for real
- * here. Everything requiring network I/O, WordPress detection, findings,
- * scoring, or report generation is Phase 1+ feature work.
+ * scanners' job. Runs scanners in registration order (see scanner-registry.ts,
+ * which lists them in pipeline order), short-circuiting after
+ * wordpress-detector if the target isn't WordPress. Findings beyond the
+ * "not WordPress" case, scoring, sales insights, enrichment and HTML/PDF
+ * reports are later phases (see CLAUDE.md "Roadmap") — this wires the
+ * scanner layer through to a persisted JSON AuditResult.
  */
 export class AuditOrchestrator {
   constructor(
@@ -81,34 +89,108 @@ export class AuditOrchestrator {
   }
 
   async run(request: AuditRequest): Promise<AuditResult> {
-    // Step 1: Validate target — real (pure parsing, no I/O).
     const target = buildTarget(request.targetInput);
 
-    // Step 4: Resolve authorization mode + consent gate — real. Fails fast
-    // on missing consent; never silently downgrades audit to prospect.
-    const { mode } = resolveAuthorizationMode(request, target);
-    this.filterScanners(mode);
+    // Fails fast on missing consent; never silently downgrades audit to prospect.
+    const { mode, consentArtifact } = resolveAuthorizationMode(request, target);
+    const scanners = this.filterScanners(mode);
 
-    // TODO (Phase 1 feature work) — remaining pipeline steps (see CLAUDE.md "Audit pipeline"):
-    //  2. SSRF protection
-    //  3. Resolve DNS
-    //  5. Fetch homepage
-    //  6. Detect WordPress (short-circuit if not WP)
-    //  7. Detect core version
-    //  8. Detect plugins
-    //  9. Detect theme
-    // 10. Check public endpoints (audit only)
-    // 11. Check security headers
-    // 12. Check TLS
-    // 13. Enrich via external APIs
-    // 14. Generate findings
-    // 15. Calculate scores
-    // 16. Generate sales insights
-    // 17. Save JSON
-    // 18. Generate HTML
-    // 19. Generate PDF
-    throw new NotImplementedError(
-      'AuditOrchestrator.run (Phase 1 feature work beyond authorization resolution)',
-    );
+    const context = new DefaultAuditContext({
+      target,
+      authorizationMode: mode,
+      profile: request.profile,
+      ...(consentArtifact ? { consentArtifact } : {}),
+      startedAt: new Date().toISOString(),
+    });
+
+    const limitations = await this.runScanners(scanners, context);
+
+    const isWordPress = context.isWordPress() ?? false;
+    const findings: Finding[] = isWordPress ? [] : [this.buildNotWordPressFinding(target)];
+    const status: AuditStatus = limitations.length > 0 ? 'partial' : 'completed';
+
+    const result: AuditResult = {
+      id: randomUUID(),
+      target,
+      authorizationMode: mode,
+      profile: request.profile,
+      ...(consentArtifact ? { consentArtifact } : {}),
+      status,
+      startedAt: context.startedAt,
+      finishedAt: new Date().toISOString(),
+      isWordPress,
+      scannerResults: context.getScannerResults(),
+      findings,
+      limitations,
+    };
+
+    await saveAuditResult(result);
+    return result;
+  }
+
+  /**
+   * Runs each supported scanner in order, short-circuiting once
+   * wordpress-detector reports a non-WordPress target — the tool's whole
+   * purpose is WordPress-specific, so nothing further applies. A scanner
+   * throwing an AuditFailureError (SSRF rejection, unreachable host, ...) is
+   * a target-level problem and propagates to fail the whole run; any other
+   * scanner error is recorded as a limitation and the run continues.
+   */
+  private async runScanners(
+    scanners: readonly Scanner[],
+    context: AuditContext,
+  ): Promise<string[]> {
+    const limitations: string[] = [];
+
+    for (const scanner of scanners) {
+      if (!scanner.supports(context)) continue;
+
+      this.logger.info({ scanner: scanner.name }, 'Running scanner');
+      try {
+        const result = await scanner.run(context);
+        context.addScannerResult(result);
+        if (result.status === 'error') {
+          limitations.push(`${scanner.name}: ${result.error?.message ?? 'reported an error'}`);
+        }
+      } catch (error) {
+        if (error instanceof AuditFailureError) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        context.addScannerResult({
+          scannerName: scanner.name,
+          status: 'error',
+          error: { message },
+          durationMs: 0,
+        });
+        limitations.push(`${scanner.name} failed: ${message}`);
+        this.logger.warn({ scanner: scanner.name, error: message }, 'Scanner failed');
+      }
+
+      if (scanner.name === 'wordpress-detector' && context.isWordPress() === false) {
+        this.logger.info('Target is not WordPress — finalizing without further scanners.');
+        break;
+      }
+    }
+
+    return limitations;
+  }
+
+  private buildNotWordPressFinding(target: Target): Finding {
+    return createFinding({
+      id: randomUUID(),
+      category: 'infrastructure',
+      confidence: 'confirmed',
+      requestedSeverity: 'info',
+      sourceLayer: 1,
+      businessImpact: 'none',
+      recommendationKey: 'finding.notWordpress.recommendation',
+      evidence: [
+        {
+          descriptionKey: 'finding.notWordpress.evidence',
+          params: { domain: target.domain },
+        },
+      ],
+    });
   }
 }
