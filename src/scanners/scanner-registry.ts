@@ -34,6 +34,6 @@ export function createScanners(config: AppConfig): Scanner[] {
     new ThemeScanner(httpClientOptions, new UndiciHttpClient()),
     new EndpointScanner(),
     new HeaderScanner(),
-    new TlsScanner(),
+    new TlsScanner(config.HTTP_TIMEOUT_MS),
   ];
 }

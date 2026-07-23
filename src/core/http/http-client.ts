@@ -27,12 +27,62 @@ export interface HttpClient {
   fetchUrl(url: string, options: HttpClientOptions): Promise<HttpResponse>;
 }
 
-type ResolveHostname = (hostname: string) => Promise<string[]>;
+export type ResolveHostname = (hostname: string) => Promise<string[]>;
 type CreateDispatcher = (resolvedIp: string) => Dispatcher;
 
-async function defaultResolveHostname(hostname: string): Promise<string[]> {
+export async function defaultResolveHostname(hostname: string): Promise<string[]> {
   const results = await dns.lookup(hostname, { all: true, verbatim: true });
   return results.map((result) => result.address);
+}
+
+/**
+ * Resolves `url`'s hostname and validates the result against the SSRF guard
+ * — shared by any caller that opens its own connection to the target
+ * (the HTTP client's redirect-following fetch, and TlsScanner's direct TLS
+ * probe) so the DNS-rebinding check only lives in one place.
+ */
+export async function resolveAndValidateAddress(
+  url: URL,
+  resolveHostname: ResolveHostname = defaultResolveHostname,
+): Promise<string> {
+  const schemeAndHostCheck = isSafeToFetch(url);
+  if (!schemeAndHostCheck.safe) {
+    throw new SsrfRejectedError(
+      url.toString(),
+      schemeAndHostCheck.reason ?? 'blocked by SSRF guard',
+    );
+  }
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(hostname)) {
+    // Literal IP in the URL — already validated above, nothing to resolve.
+    return hostname;
+  }
+
+  let addresses: string[];
+  try {
+    addresses = await resolveHostname(hostname);
+  } catch (cause) {
+    throw new UnreachableTargetError(url.toString(), cause);
+  }
+
+  const resolvedIp = addresses[0];
+  if (!resolvedIp) {
+    throw new UnreachableTargetError(
+      url.toString(),
+      new Error('DNS resolution returned no addresses.'),
+    );
+  }
+
+  const resolvedCheck = isSafeIpAddress(resolvedIp);
+  if (!resolvedCheck.safe) {
+    throw new SsrfRejectedError(
+      url.toString(),
+      `Hostname resolved to a blocked address: ${resolvedCheck.reason ?? resolvedIp}`,
+    );
+  }
+
+  return resolvedIp;
 }
 
 /**
@@ -161,43 +211,6 @@ export class UndiciHttpClient implements HttpClient {
   }
 
   private async resolveAndValidate(url: URL): Promise<string> {
-    const schemeAndHostCheck = isSafeToFetch(url);
-    if (!schemeAndHostCheck.safe) {
-      throw new SsrfRejectedError(
-        url.toString(),
-        schemeAndHostCheck.reason ?? 'blocked by SSRF guard',
-      );
-    }
-
-    const hostname = url.hostname.replace(/^\[|\]$/g, '');
-    if (net.isIP(hostname)) {
-      // Literal IP in the URL — already validated above, nothing to resolve.
-      return hostname;
-    }
-
-    let addresses: string[];
-    try {
-      addresses = await this.resolveHostname(hostname);
-    } catch (cause) {
-      throw new UnreachableTargetError(url.toString(), cause);
-    }
-
-    const resolvedIp = addresses[0];
-    if (!resolvedIp) {
-      throw new UnreachableTargetError(
-        url.toString(),
-        new Error('DNS resolution returned no addresses.'),
-      );
-    }
-
-    const resolvedCheck = isSafeIpAddress(resolvedIp);
-    if (!resolvedCheck.safe) {
-      throw new SsrfRejectedError(
-        url.toString(),
-        `Hostname resolved to a blocked address: ${resolvedCheck.reason ?? resolvedIp}`,
-      );
-    }
-
-    return resolvedIp;
+    return resolveAndValidateAddress(url, this.resolveHostname);
   }
 }
