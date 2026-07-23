@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { z } from 'zod';
-import { setLocale } from '../../i18n/translate.js';
+import { setLocale, t } from '../../i18n/translate.js';
 import { printMessage, printError } from '../output.js';
 import { buildTarget } from '../../core/types/target.js';
 import { AuditOrchestrator } from '../../core/orchestrator/audit-orchestrator.js';
@@ -66,7 +66,7 @@ export function registerAuditCommand(program: Command): void {
         const result = await orchestrator.run(request);
         const savedPath = auditResultPathForResult(result);
         printMessage('cli.audit.done', {
-          status: result.status,
+          status: t(`report.status.${result.status}`),
           target: result.target.domain,
           path: savedPath,
         });
