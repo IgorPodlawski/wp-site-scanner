@@ -10,6 +10,7 @@ import type {
   CoreStableVersions,
   WordPressOrgPluginInfo,
   WordPressOrgThemeInfo,
+  WpscanVulnerability,
 } from '../integrations/enrichment-types.js';
 import { compareVersions } from './version-confidence.js';
 
@@ -17,6 +18,8 @@ import { compareVersions } from './version-confidence.js';
 export const WORDPRESS_ORG_PLUGIN_ENRICHMENT = 'wordpress-org-plugins';
 export const WORDPRESS_ORG_THEME_ENRICHMENT = 'wordpress-org-themes';
 export const WORDPRESS_ORG_CORE_ENRICHMENT = 'wordpress-org-core';
+export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
+export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
 
 function dataFrom<T>(results: readonly ScannerResult[], scannerName: string): T | undefined {
   const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
@@ -298,6 +301,73 @@ function deriveCoreVersionFindings(
   ];
 }
 
+/** 'yes'/'no' when the fix-vs-installed comparison is conclusive, 'unknown' when it can't be determined. */
+function isAffectedByVulnerability(
+  installed: string,
+  fixedIn: string | undefined,
+): 'yes' | 'no' | 'unknown' {
+  if (!fixedIn) return 'yes'; // no fix has been published yet — every known-affected install is still exposed
+  const comparison = compareVersions(installed, fixedIn);
+  if (comparison === undefined) return 'unknown';
+  return comparison === -1 ? 'yes' : 'no';
+}
+
+/**
+ * CLAUDE.md's CVE assertion rule, applied mechanically: a vulnerability is
+ * only asserted as "confirmed applicable" when the component's version is
+ * itself `confirmed` AND is conclusively inside the affected range.
+ * Everything else that isn't conclusively patched (an unconfirmed version,
+ * or a comparison that can't be resolved) is emitted as "potentially
+ * affected" instead — never silently dropped, but never overclaimed either.
+ * A conclusively patched install (installed >= fixedIn) is not flagged.
+ */
+function deriveVulnerabilityFindings(
+  components: readonly OutdatedComponent[],
+  vulnerabilitiesBySlug: Record<string, WpscanVulnerability[] | undefined>,
+  messageKeyPrefix: string,
+): Finding[] {
+  const findings: Finding[] = [];
+
+  for (const component of components) {
+    const vulnerabilities = vulnerabilitiesBySlug[component.slug];
+    if (!component.version || !vulnerabilities) continue;
+
+    for (const vulnerability of vulnerabilities) {
+      const affected = isAffectedByVulnerability(component.version.value, vulnerability.fixedIn);
+      if (affected === 'no') continue;
+
+      const isConfirmedApplicable =
+        affected === 'yes' && component.version.confidence === 'confirmed';
+      const messageKeySuffix = isConfirmedApplicable ? 'confirmed' : 'potential';
+
+      findings.push(
+        createFinding({
+          id: randomUUID(),
+          category: 'security',
+          confidence: component.version.confidence,
+          requestedSeverity: 'critical',
+          sourceLayer: 'third-party',
+          businessImpact: 'strong',
+          recommendationKey: `${messageKeyPrefix}.${messageKeySuffix}.recommendation`,
+          evidence: [
+            {
+              descriptionKey: `${messageKeyPrefix}.${messageKeySuffix}.evidence`,
+              params: {
+                slug: component.slug,
+                installed: component.version.value,
+                title: vulnerability.title,
+              },
+              raw: vulnerability,
+            },
+          ],
+        }),
+      );
+    }
+  }
+
+  return findings;
+}
+
 /**
  * Interprets raw scanner observations into Findings. Never emit raw scanner
  * output directly — every Finding goes through core/types/finding.ts's
@@ -350,6 +420,30 @@ export function generateFindings(context: AuditContext): Finding[] {
     CoreStableVersions | undefined;
   if (coreVersion && coreEnrichment) {
     findings.push(...deriveCoreVersionFindings(coreVersion, coreEnrichment));
+  }
+
+  const pluginVulnerabilities = context.getEnrichment(WPSCAN_PLUGIN_ENRICHMENT) as
+    Record<string, WpscanVulnerability[] | undefined> | undefined;
+  if (pluginData && pluginVulnerabilities) {
+    findings.push(
+      ...deriveVulnerabilityFindings(
+        pluginData.plugins,
+        pluginVulnerabilities,
+        'finding.plugin.vulnerability',
+      ),
+    );
+  }
+
+  const themeVulnerabilities = context.getEnrichment(WPSCAN_THEME_ENRICHMENT) as
+    Record<string, WpscanVulnerability[] | undefined> | undefined;
+  if (themeData && themeVulnerabilities) {
+    findings.push(
+      ...deriveVulnerabilityFindings(
+        themeData.themes,
+        themeVulnerabilities,
+        'finding.theme.vulnerability',
+      ),
+    );
   }
 
   return findings;

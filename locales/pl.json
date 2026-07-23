@@ -92,6 +92,16 @@
   "finding.core.insecure.evidence": "Rdzeń WordPressa jest w wersji {{installed}}, którą WordPress.org oznacza jako niebezpieczną (znane podatności).",
   "finding.core.insecure.recommendation": "Zaktualizuj rdzeń WordPressa natychmiast — ta wersja ma publicznie znane podatności bezpieczeństwa.",
 
+  "finding.plugin.vulnerability.confirmed.evidence": "Wtyczka {{slug}} (potwierdzona wersja {{installed}}) ma publicznie znaną podatność: {{title}}.",
+  "finding.plugin.vulnerability.confirmed.recommendation": "Zaktualizuj wtyczkę {{slug}} natychmiast — aktualnie zainstalowana wersja ma potwierdzoną znaną podatność.",
+  "finding.plugin.vulnerability.potential.evidence": "Wtyczka {{slug}} (wykryta wersja {{installed}}) może być narażona na publicznie znaną podatność: {{title}}.",
+  "finding.plugin.vulnerability.potential.recommendation": "Zweryfikuj zainstalowaną wersję wtyczki {{slug}} i zaktualizuj ją, jeśli odpowiada znanemu zakresowi podatności.",
+
+  "finding.theme.vulnerability.confirmed.evidence": "Motyw {{slug}} (potwierdzona wersja {{installed}}) ma publicznie znaną podatność: {{title}}.",
+  "finding.theme.vulnerability.confirmed.recommendation": "Zaktualizuj motyw {{slug}} natychmiast — aktualnie zainstalowana wersja ma potwierdzoną znaną podatność.",
+  "finding.theme.vulnerability.potential.evidence": "Motyw {{slug}} (wykryta wersja {{installed}}) może być narażony na publicznie znaną podatność: {{title}}.",
+  "finding.theme.vulnerability.potential.recommendation": "Zweryfikuj zainstalowaną wersję motywu {{slug}} i zaktualizuj go, jeśli odpowiada znanemu zakresowi podatności.",
+
   "score.category.security": "Bezpieczeństwo",
   "score.category.maintenance": "Utrzymanie",
   "score.category.performance": "Wydajność",
@@ -99,6 +109,7 @@
   "score.category.infrastructure": "Infrastruktura",
   "score.category.overall": "Ogólny",
 
+  "insight.knownVulnerabilities": "Ten audyt znalazł {{count}} publicznie znaną(e) podatność(ci) dotyczącą(e) wykrytych komponentów.",
   "insight.priority": "Ten audyt zidentyfikował {{count}} problem(y) o istotnym potencjalnym wpływie, którymi warto zająć się priorytetowo.",
   "insight.outdatedComponents": "Znaleziono {{count}} nieaktualny(ch) komponent(ów) (rdzeń WordPressa, wtyczkę lub motyw), co może zwiększać ryzyko utrzymania i bezpieczeństwa.",
   "insight.missingSecurityHeaders": "W odpowiedziach serwisu brakuje {{count}} rekomendowanego(ych) nagłówka(ów) bezpieczeństwa — ich dodanie jest zwykle niedrogie i zmniejsza typową powierzchnię ataku.",

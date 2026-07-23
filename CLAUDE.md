@@ -34,9 +34,12 @@ The tool has **two independent axes**. Do not collapse them into one flag. This 
 
 The profile is **always bounded by the mode**. `--profile deep` in `prospect` mode does more thorough Layer-1 work and third-party enrichment — it still never probes guessed paths. Only `audit` mode unlocks Layer 2 and Layer 3.
 
+> **Current gap:** `profile` is parsed, validated, and persisted on `AuditRequest`/`AuditResult`, but no scanner or enrichment step actually branches on it yet — `quick`/`standard`/`deep` all currently run identically. Layer 3 dictionary enumeration (deep + audit only) doesn't exist at all yet. Implementing profile-aware behavior is unstarted work, not a design decision to preserve.
+
 ## What each mode may touch
 
 **PROSPECT (Layer 1 only)**
+
 - fetch homepage + assets already referenced by the HTML
 - `generator` meta, plugin/theme slugs from `/wp-content/...` paths, `?ver=` params
 - HTTP headers, security headers, TLS
@@ -44,6 +47,7 @@ The profile is **always bounded by the mode**. `--profile deep` in `prospect` mo
 - **must not**: probe `readme.txt` per plugin, `/wp-json/wp/v2/users`, config backups, `.git`/`.env`, directory listing, or run any dictionary enumeration
 
 **AUDIT (Layers 1–3, requires consent artifact)**
+
 - everything in Layer 1, plus:
 - Layer 2 targeted probes: plugin `readme.txt` (`Stable tag`), theme `style.css` header, `/readme.html`, `/wp-json/wp/v2/users`, `xmlrpc.php`, directory listing, config-backup paths
 - Layer 3 dictionary enumeration of plugins/themes (only at `--profile deep`)
@@ -52,6 +56,7 @@ The profile is **always bounded by the mode**. `--profile deep` in `prospect` mo
 ## Consent artifact (audit mode gate)
 
 Before an `audit` run starts, the orchestrator **must** require and persist:
+
 - target domain
 - explicit consent confirmation (flag `--i-have-authorization` **or** a `consent` field in the batch row)
 - timestamp
@@ -64,7 +69,7 @@ This is stored inside `AuditResult` and printed in the report. Keep it lightweig
 Every scanner declares the lowest authorization it requires:
 
 ```ts
-minAuthorization: 'prospect' | 'audit'
+minAuthorization: 'prospect' | 'audit';
 ```
 
 The orchestrator filters scanners by the active mode **before** running them. Enforcement lives in the orchestrator, not in each scanner — a scanner must be impossible to run outside its allowed mode even if called by mistake.
@@ -158,6 +163,7 @@ Report Generator    (JSON, HTML, PDF)
 Coordinates the audit. Does NOT perform technical analysis.
 
 Responsibilities:
+
 - validate target (incl. SSRF checks)
 - resolve authorization mode and enforce the consent gate for `audit`
 - create AuditContext
@@ -177,10 +183,10 @@ One responsibility per scanner.
 
 ```ts
 interface Scanner {
-  name: string
-  minAuthorization: 'prospect' | 'audit'
-  supports(context: AuditContext): boolean
-  run(context: AuditContext): Promise<ScannerResult>
+  name: string;
+  minAuthorization: 'prospect' | 'audit';
+  supports(context: AuditContext): boolean;
+  run(context: AuditContext): Promise<ScannerResult>;
 }
 ```
 
@@ -199,7 +205,7 @@ Scanners never call each other. Communication happens only through AuditContext.
 7. Detect core version
 8. Detect plugins
 9. Detect theme
-10. Check public endpoints *(audit only)*
+10. Check public endpoints _(audit only)_
 11. Check security headers
 12. Check TLS
 13. Enrich via external APIs
@@ -215,6 +221,7 @@ Scanners never call each other. Communication happens only through AuditContext.
 # MVP scanners
 
 Required:
+
 - HTTP Scanner — `prospect`
 - WordPress Detector — `prospect`
 - Core Version Scanner — `prospect`
@@ -225,6 +232,7 @@ Required:
 - TLS Scanner — `prospect`
 
 Future:
+
 - Performance Scanner (PageSpeed) — `prospect`
 - SEO Scanner — `prospect`
 - Technology Scanner — `prospect`
@@ -233,13 +241,23 @@ Future:
 
 # External APIs
 
-**WordPress.org** — latest version, last update, active installs, compatibility.
+**WordPress.org** — implemented in `src/integrations/wordpress-org-client.ts`, verified against the live API. Notes for anyone touching this again:
 
-**WPScan** — known vulnerabilities / CVEs / fixed versions. Use the **WPScan vulnerability database API only** (a data lookup). Do **not** invoke the WPScan CLI scanner — its active enumeration contradicts the "NOT a pentest tool" constraint. The free WPScan API tier is rate-limited (~100 requests/day); treat this as a real design constraint for batch runs and lean on the cache. Requires `WPSCAN_API_TOKEN`.
+- Plugin/theme info is `GET https://api.wordpress.org/plugins/info/1.2/` (not `1.0` — the `1.0/{slug}.json` shortcut endpoint omits `active_installs` entirely). Requires the query params `action=plugin_information` (or `theme_information`), `request[slug]=<slug>`, `request[fields][active_installs]=1`.
+- "Not found" comes back as **HTTP 200** with `{"error": "Plugin not found."}` (or `{"error": "Theme not found"}`) — not a 404. Client treats this as `ok(undefined)`, not a failure.
+- Core version status is a _separate_, simpler endpoint: `GET https://api.wordpress.org/core/stable-check/1.0/` returns a flat `{ "<version>": "latest" | "outdated" | "insecure", ... }` map covering essentially every released version. `insecure` is wordpress.org itself confirming known vulnerabilities for that exact version — this is a stronger signal than the plugin/theme "compare against latest" approach and is used directly (see Findings section).
 
-**PageSpeed** — mobile performance, Core Web Vitals. Requires `PAGESPEED_API_KEY`.
+**WPScan** — implemented in `src/integrations/wpscan-client.ts`, verified against the live API (a real `WPSCAN_API_TOKEN` was available during development — see the git history around the WPScan integration commit for the verification transcript). Use the **WPScan vulnerability database API only** (a data lookup). Do **not** invoke the WPScan CLI scanner — its active enumeration contradicts the "NOT a pentest tool" constraint. Notes:
 
-Every external API must: use a timeout, retry at most once, use the cache, and never crash the audit. A failed enrichment degrades the run to `partial`, it does not abort it.
+- `GET https://wpscan.com/api/v3/plugins/{slug}` / `.../themes/{slug}`, header `Authorization: Token token=<WPSCAN_API_TOKEN>`.
+- Unknown slug → **HTTP 404** with `{"status":"...", "is_error":true}` (opposite convention from WordPress.org's plugin API!) — treated as "no known vulnerabilities," not a failure.
+- Response is keyed by the slug: `{"<slug>": {"vulnerabilities": [...], ...}}`. Each vulnerability's `id` is a UUID **string**, not a number. `fixed_in` may be `null`/absent (no patch released yet — treat as still-affected). `references` is an object (`{url: [...], cve: [...]}`), not a flat array — the client flattens it to `["CVE-...", ...urls]` to match the internal `WpscanVulnerability` shape.
+- Free tier is rate-limited (~100 requests/day); this is a real constraint for batch runs — lean on the 7-day cache.
+- **Audit-mode only** (see "What each mode may touch" above) — enforced in `AuditOrchestrator`, not in the client itself. The client's own `wpscanEnabled` check only covers "is a token configured," so don't rely on it alone for the authorization-mode boundary.
+
+**PageSpeed** — **not yet implemented.** `src/integrations/pagespeed-client.ts` is still the original stub (throws `NotImplementedError`). Requires `PAGESPEED_API_KEY`. Until this exists, the `performance` score category has no findings feeding it and will always read 100.
+
+Every external API must: use a timeout, retry at most once, use the cache, and never crash the audit. A failed enrichment degrades the run to `partial`, it does not abort it. Implemented as: each client returns a `Result<T, Error>` (`src/utils/result.ts`) — `ok(value)` including `ok(undefined)`/`ok([])` for "legitimately nothing here" vs `err(error)` for "the API call itself failed" — so the orchestrator can tell "not found" apart from "couldn't check" and only degrade to `partial` for the latter.
 
 ---
 
@@ -248,6 +266,7 @@ Every external API must: use a timeout, retry at most once, use the cache, and n
 Mandatory. Provide a `--no-cache` / force-clear option.
 
 TTL:
+
 - WordPress.org: 24h
 - WPScan: 7d
 - PageSpeed: 12h
@@ -262,20 +281,24 @@ Phase 1–3: cache as JSON files under `CACHE_DIR`. Phase 4: may move into SQLit
 
 **AuditContext** — mutable runtime state passed through the pipeline. It grows only through **controlled, append-style writes** by the orchestrator between stages (e.g. `context.addScannerResult(...)`). No scanner mutates another scanner's data; no free-form mutation. Treat each field as write-once per producing stage.
 
-Contains: target, authorization mode, consent artifact, HTTP response, HTML, detected plugins, detected theme, endpoint results, API enrichments, findings, scores, scanner results.
+Contains: target, authorization mode, consent artifact, HTTP response, HTML, detected plugins, detected theme, endpoint results, API enrichments, findings, scores, insights, scanner results.
 
 **AuditResult** — the immutable persisted output. Do not mix the two.
+
+Implementation note: `findings` and `scores`/`insights` are handled inconsistently today — `AuditContext.addFinding()`/`getFindings()` exist on the interface but `AuditOrchestrator.run()` never actually calls them (it builds the findings array locally from `generateFindings(context)` and puts it straight into `AuditResult`); `setScoreSummary()`/`setInsights()`, by contrast, are actually called. Not a deliberate design choice — just an inconsistency nobody has fixed yet. If you touch this, prefer making `addFinding` actually used (or removing it) over adding a third pattern.
 
 ---
 
 # Version detection
 
 Every detected version includes:
+
 - `value`
 - `source` (e.g. `generator-meta`, `asset-query-string`, `plugin-readme`, `theme-stylesheet`)
 - `confidence` (`inferred` | `corroborated` | `confirmed`)
 
 Rules:
+
 - `?ver=1.2.3` on an asset is `inferred` at best (cache-busters lie).
 - A single source → max `corroborated`.
 - `confirmed` requires **two independent sources** agreeing (e.g. `readme` + `stylesheet`).
@@ -287,6 +310,7 @@ Rules:
 Findings are interpreted problems, never raw scanner output.
 
 Every finding contains:
+
 - `category`
 - `severity` — `info | low | medium | high | critical`
 - `confidence` — `inferred | corroborated | confirmed`
@@ -296,13 +320,14 @@ Every finding contains:
 - `evidence` — the concrete observation(s) supporting it
 
 **Confidence caps severity (hard rule):**
+
 - `inferred` → severity may not exceed `medium`
 - `corroborated` → may not exceed `high`
 - only `confirmed` may be `critical`
 
 This is the mechanical implementation of "false positives are worse than misses." It is not optional.
 
-**CVE assertion rule:** a vulnerability is asserted as *applicable* only when the component version is `confirmed` **and** falls inside the affected range (`affected_version < fixed_in`). Otherwise emit it as **"potentially affected"** with reduced severity. Never present a CVE as confirmed off an `inferred` version.
+**CVE assertion rule:** a vulnerability is asserted as _applicable_ only when the component version is `confirmed` **and** falls inside the affected range (`affected_version < fixed_in`). Otherwise emit it as **"potentially affected"** with reduced severity. Never present a CVE as confirmed off an `inferred` version. Implemented in `analysis/finding-engine.ts`'s `deriveVulnerabilityFindings`/`isAffectedByVulnerability`: the requested severity is always `critical`, and the existing confidence-caps-severity mechanism (not a separate branch) is what actually produces the "reduced severity" for anything short of confirmed-and-in-range — only the message wording (confirmed vs. potential) is chosen explicitly.
 
 ---
 
@@ -310,7 +335,7 @@ This is the mechanical implementation of "false positives are worse than misses.
 
 Categories: Security, Maintenance, Performance, SEO, Infrastructure, Overall.
 
-Start each at 100. Reduce per finding as a function of `severity × confidence` (lower confidence → smaller deduction). No invented mathematical complexity — scoring only prioritizes. Keep the deduction table explicit and in one place (`analysis/scoring`), so it is reviewable and testable.
+Start each at 100. Reduce per finding as a function of `severity × confidence` (lower confidence → smaller deduction). No invented mathematical complexity — scoring only prioritizes. Keep the deduction table explicit and in one place (`analysis/scoring-engine.ts`'s `DEDUCTION_TABLE`), so it is reviewable and testable. `overall` is not an average of the categories — it's reduced by every finding regardless of category, so it reflects total risk while the per-category breakdown shows where it concentrates.
 
 ---
 
@@ -334,6 +359,10 @@ Good: "Several publicly visible components appear to be outdated, which may incr
 
 Every insight references the finding(s) it is built on.
 
+**Naming note:** implemented as `Insight` / `generateInsights()` in `src/analysis/insight-engine.ts` — deliberately renamed away from "sales" anywhere in code, types, JSON output, or i18n keys (`insight.*`, not `report.salesInsights.*`), since these reports are shared directly with the client. This doc keeps the section title for continuity with the concept it specifies; the codebase intentionally does not use the word.
+
+Current rules (`INSIGHT_RULES` in `insight-engine.ts`) group Findings by theme rather than emitting one insight per finding: known vulnerabilities, priority (critical/high severity), outdated components, missing security headers, info disclosure, TLS configuration, exposed endpoints. A single Finding can legitimately surface under more than one rule (e.g. a critical exposed-endpoint finding appears in both the priority bucket and the exposed-endpoints bucket) — that's intentional, not a dedup bug.
+
 ---
 
 # Reports
@@ -351,6 +380,7 @@ Always include a disclaimer that the audit is based only on publicly available i
 **SSRF protection.** Reject: localhost, private IPv4, private IPv6, link-local, cloud metadata endpoints. Validate every redirect against the same rules (a redirect must not lead into a blocked range).
 
 Limits (config defaults, overridable via env):
+
 - timeout: 10s
 - max redirects: 5
 - max response: 10 MB
@@ -415,41 +445,53 @@ Pino. Levels: info, warn, error, debug. Default CLI shows concise progress; `LOG
 
 # CLI
 
-> TODO (agent to define exact command wiring / arg parser). Reference shape:
+Wired with Commander (`src/cli/program.ts`, `src/cli/commands/*.ts`).
+
+**`audit` — implemented, end-to-end.**
 
 ```bash
 wp-audit audit https://example.com                       # prospect mode, standard profile
 wp-audit audit https://example.com --profile quick
 wp-audit audit https://example.com --profile deep
-wp-audit audit https://example.com --i-have-authorization  # unlocks audit mode
+wp-audit audit https://example.com --i-have-authorization  # unlocks audit mode (sets consent: {confirmed: true, source: 'cli-flag'})
 wp-audit audit https://example.com --lang pl
-wp-audit batch leads.csv                                  # prospect by default
-wp-audit batch leads.csv --i-have-authorization           # requires per-row consent column
-wp-audit history example.com
+wp-audit audit https://example.com --no-cache
+```
+
+Runs the full pipeline (scanners → enrichment → findings → scoring → insights) and writes both `data/audits/<domain>/<timestamp>.json` and `reports/<domain>/<timestamp>.html`, printing both paths.
+
+**`batch` and `history` — still stubs.** Both commands exist and parse args, but their handlers just print a "not implemented" message (Phase 3). Do not assume batch throttling (`BATCH_CONCURRENCY`/`PER_HOST_DELAY_MS`) or history/compare work yet — the env vars are validated and available, but nothing reads them.
+
+```bash
+wp-audit batch leads.csv                                  # prospect by default — not yet implemented
+wp-audit batch leads.csv --i-have-authorization           # requires per-row consent column — not yet implemented
+wp-audit history example.com                              # not yet implemented
 ```
 
 ---
 
-# Commands (fill in once tooling is chosen)
+# Commands
 
-> TODO — agent fills these in after scaffolding. Leave blank until decided.
-
-- package manager: <!-- npm / pnpm / yarn -->
-- install: <!-- e.g. pnpm install -->
-- build: <!-- -->
-- typecheck: <!-- -->
-- lint: <!-- -->
-- test (all): <!-- -->
-- test (single file): <!-- -->
-- run CLI in dev: <!-- -->
+- package manager: pnpm
+- install: `pnpm install`
+- build: `pnpm build` (compiles to `dist/` and copies `src/reports/templates/` into `dist/reports/templates/` — `tsc` doesn't copy non-`.ts` assets, so the report template needs an explicit copy step)
+- typecheck: `pnpm typecheck`
+- lint: `pnpm lint`
+- format: `pnpm format` / check-only: `pnpm format:check`
+- test (all): `pnpm test`
+- test (watch): `pnpm test:watch`
+- test (single file): `pnpm test <path-or-pattern>` (e.g. `pnpm test tests/unit/finding-engine.test.ts`)
+- run CLI in dev: `pnpm dev -- audit https://example.com`
+- run CLI built: `pnpm build && node dist/cli/index.js audit https://example.com`
 
 ---
 
 # Testing
 
-- Scanners are tested against **recorded HTTP fixtures** (`tests/fixtures/`), never against live sites — deterministic, CI-safe, and the main defense against false-positive regressions. Use nock or msw (agent decides).
+- Scanners and integration clients are tested by **dependency-injecting fake `HttpClient`/`CacheStore` objects** (plain objects implementing those interfaces), never against live sites — deterministic, CI-safe, and the main defense against false-positive regressions. This is the pattern actually in use across the whole test suite; follow it for new scanners/clients rather than introducing an HTTP-interceptor library. (Decided-against: `nock` is still in `devDependencies` from the initial scaffold but is unused — `tests/unit/http-client.test.ts` is the one exception, using undici's own `MockAgent` since it's testing the low-level HTTP client itself, not something built on top of it.)
 - Cover: version-detection confidence rules, confidence-caps-severity, the CVE applicability rule, SSRF rejection, redirect validation, non-WordPress graceful exit, and mode enforcement (a `audit`-only scanner must not run in `prospect`).
 - Every finding-producing rule needs at least one positive and one negative fixture.
+- **Before trusting an assumed external API response shape, verify it against the real API** (with a real token/response if at all available) before writing the client's Zod schema — fixture tests alone will happily pass against your own incorrect assumption of the wire format. This caught two real bugs during development: WordPress.org's plugin-info endpoint silently omits `active_installs` unless requested via `request[fields][active_installs]=1` (the `1.0/{slug}.json` shortcut doesn't support this at all — use `1.2/` with query params), and a finding whose recommendation text needed a `{{param}}` that the finding-engine rule never actually passed (only visible once the HTML report was rendered and read, not from the unit tests). If a live API/token isn't available, say so explicitly rather than presenting an unverified integration as equivalent to a verified one.
 
 ---
 
@@ -486,13 +528,15 @@ Implemented, typed, Zod-validated where external input enters, tested (incl. a n
 
 # Roadmap
 
-**Phase 1** — CLI, basic scanners, WordPress.org enrichment, JSON + HTML, EN/PL scaffolding, prospect/audit mode enforcement.
+Status as of the last update to this doc — keep this section current; it's the fastest way for anyone (human or agent) to know what's real vs planned without reading every source file.
 
-**Phase 2** — WPScan API, PageSpeed, cache, scoring.
+**Phase 1** — CLI, basic scanners, WordPress.org enrichment, JSON + HTML, EN/PL scaffolding, prospect/audit mode enforcement. **✅ Done.** All 8 MVP scanners implemented and registered; orchestrator runs the real pipeline (scanners → WordPress.org enrichment → findings → scoring → insights → JSON + HTML persisted); `--i-have-authorization` actually works end-to-end (this was broken until recently — it set the mode but never supplied the consent object, so every real audit-mode CLI run failed immediately).
 
-**Phase 3** — batch mode (with consent handling), history, compare, deep profile.
+**Phase 2** — WPScan API, PageSpeed, cache, scoring. **Partially done.** WPScan CVE enrichment: done, audit-mode-gated, verified against the live API. Cache (`FileCacheStore`, `provider:type:identifier:version` keys): done. Scoring (`analysis/scoring-engine.ts`, explicit deduction table): done. **PageSpeed: not started** — `pagespeed-client.ts` is still the original throwing stub; the `performance` score category has nothing feeding it and will always read 100 until this exists.
 
-**Phase 4** — SQLite, PDF export, AI-generated sales email.
+**Phase 3** — batch mode (with consent handling), history, compare, deep profile. **Not started.** `wp-audit batch`/`wp-audit history` are registered commands that just print "not implemented." `--profile` is accepted and persisted but doesn't change any scanner/enrichment behavior yet (all profiles currently run identically). Layer 3 dictionary enumeration doesn't exist.
+
+**Phase 4** — SQLite, PDF export, AI-generated sales email. **Not started.** `pdf-report.ts` is an intentional stub (own docstring says Phase 4); the HTML template it will render is already built and print-friendly, so PDF should be "render the same template," not a new layout, once an engine is chosen.
 
 ---
 

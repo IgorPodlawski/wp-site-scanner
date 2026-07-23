@@ -7,6 +7,7 @@ import type { AppConfig } from '@config/types.js';
 import type { Logger } from '@utils/logger.js';
 import { saveAuditResult } from '@storage/json-store.js';
 import type { WordPressOrgClient } from '@integrations/wordpress-org-client.js';
+import type { WpscanClient } from '@integrations/wpscan-client.js';
 import { ok, err } from '@utils/result.js';
 
 vi.mock('@storage/json-store.js', () => ({ saveAuditResult: vi.fn(async () => '/tmp/fake.json') }));
@@ -37,6 +38,16 @@ function fakeWordPressOrgClient(overrides: Partial<WordPressOrgClient> = {}): Wo
 }
 
 const NO_OP_WORDPRESS_ORG_CLIENT = fakeWordPressOrgClient();
+
+function fakeWpscanClient(overrides: Partial<WpscanClient> = {}): WpscanClient {
+  return {
+    getPluginVulnerabilities: async () => ok([]),
+    getThemeVulnerabilities: async () => ok([]),
+    ...overrides,
+  } as unknown as WpscanClient;
+}
+
+const NO_OP_WPSCAN_CLIENT = fakeWpscanClient();
 
 const PROSPECT_REQUEST: AuditRequest = {
   targetInput: 'https://example.com',
@@ -73,6 +84,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -105,6 +117,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -138,6 +151,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -163,6 +177,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     await expect(orchestrator.run(PROSPECT_REQUEST)).rejects.toThrow(SsrfRejectedError);
@@ -180,6 +195,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -228,6 +244,7 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       wordPressOrgClient,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -264,11 +281,101 @@ describe('AuditOrchestrator.run', () => {
       TEST_CONFIG,
       FAKE_LOGGER,
       wordPressOrgClient,
+      NO_OP_WPSCAN_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
 
     expect(result.status).toBe('partial');
     expect(result.limitations).toEqual(['wordpress-org plugin lookup failed for 1 of 1 item(s)']);
+  });
+
+  it('never queries WPScan in prospect mode, even when the token is configured', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pluginScanner = fakeScanner('plugin-scanner', {
+      run: async () => ({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: { plugins: [{ slug: 'akismet' }] },
+        durationMs: 0,
+      }),
+    });
+    const wpscanClient = fakeWpscanClient({
+      getPluginVulnerabilities: async () => {
+        throw new Error('WPScan must not be queried in prospect mode');
+      },
+    });
+    const orchestrator = new AuditOrchestrator(
+      [detector, pluginScanner],
+      { ...TEST_CONFIG, wpscanEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      wpscanClient,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('completed');
+    expect(result.findings).toEqual([]);
+  });
+
+  it('queries WPScan in audit mode and asserts a confirmed vulnerability finding', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pluginScanner = fakeScanner('plugin-scanner', {
+      run: async () => ({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: {
+                value: '5.0',
+                sources: ['plugin-readme', 'asset-query-string'],
+                confidence: 'confirmed',
+              },
+            },
+          ],
+        },
+        durationMs: 0,
+      }),
+    });
+    const wpscanClient = fakeWpscanClient({
+      getPluginVulnerabilities: async (slug: string) =>
+        slug === 'akismet'
+          ? ok([{ id: '1', title: 'Some XSS', fixedIn: '5.1', references: [] }])
+          : ok([]),
+    });
+    const orchestrator = new AuditOrchestrator(
+      [detector, pluginScanner],
+      { ...TEST_CONFIG, wpscanEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      wpscanClient,
+    );
+
+    const result = await orchestrator.run({
+      ...PROSPECT_REQUEST,
+      requestedMode: 'audit',
+      consent: { confirmed: true, source: 'cli-flag' },
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      category: 'security',
+      severity: 'critical',
+      confidence: 'confirmed',
+      recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
+    });
   });
 });

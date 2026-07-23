@@ -92,6 +92,16 @@
   "finding.core.insecure.evidence": "WordPress core is at version {{installed}}, which WordPress.org flags as insecure (known vulnerabilities).",
   "finding.core.insecure.recommendation": "Update WordPress core immediately — this version has publicly known security vulnerabilities.",
 
+  "finding.plugin.vulnerability.confirmed.evidence": "The {{slug}} plugin (confirmed version {{installed}}) has a publicly known vulnerability: {{title}}.",
+  "finding.plugin.vulnerability.confirmed.recommendation": "Update the {{slug}} plugin immediately — the currently installed version has a confirmed known vulnerability.",
+  "finding.plugin.vulnerability.potential.evidence": "The {{slug}} plugin (detected version {{installed}}) may be affected by a publicly known vulnerability: {{title}}.",
+  "finding.plugin.vulnerability.potential.recommendation": "Verify the installed version of the {{slug}} plugin and update it if it matches a known-vulnerable range.",
+
+  "finding.theme.vulnerability.confirmed.evidence": "The {{slug}} theme (confirmed version {{installed}}) has a publicly known vulnerability: {{title}}.",
+  "finding.theme.vulnerability.confirmed.recommendation": "Update the {{slug}} theme immediately — the currently installed version has a confirmed known vulnerability.",
+  "finding.theme.vulnerability.potential.evidence": "The {{slug}} theme (detected version {{installed}}) may be affected by a publicly known vulnerability: {{title}}.",
+  "finding.theme.vulnerability.potential.recommendation": "Verify the installed version of the {{slug}} theme and update it if it matches a known-vulnerable range.",
+
   "score.category.security": "Security",
   "score.category.maintenance": "Maintenance",
   "score.category.performance": "Performance",
@@ -99,6 +109,7 @@
   "score.category.infrastructure": "Infrastructure",
   "score.category.overall": "Overall",
 
+  "insight.knownVulnerabilities": "This audit found {{count}} publicly known vulnerability/vulnerabilities affecting detected components.",
   "insight.priority": "This audit identified {{count}} issue(s) with a significant potential impact that are worth prioritizing.",
   "insight.outdatedComponents": "{{count}} outdated component(s) were found (WordPress core, a plugin, or a theme), which may increase maintenance and security risk.",
   "insight.missingSecurityHeaders": "{{count}} recommended security header(s) are missing from the site's responses — these are typically inexpensive to add and reduce common attack surface.",

@@ -22,10 +22,13 @@ import {
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
+  WPSCAN_PLUGIN_ENRICHMENT,
+  WPSCAN_THEME_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
 import { calculateScores } from '../../analysis/scoring-engine.js';
 import { generateInsights } from '../../analysis/insight-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
+import type { WpscanClient } from '../../integrations/wpscan-client.js';
 import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../../scanners/theme-scanner.js';
@@ -95,6 +98,7 @@ export class AuditOrchestrator {
     private readonly config: AppConfig,
     private readonly logger: Logger,
     private readonly wordPressOrgClient: WordPressOrgClient,
+    private readonly wpscanClient: WpscanClient,
   ) {}
 
   filterScanners(mode: AuthorizationMode): Scanner[] {
@@ -124,6 +128,8 @@ export class AuditOrchestrator {
         this.enrichPlugins(context),
         this.enrichThemes(context),
         this.enrichCore(context),
+        this.enrichPluginVulnerabilities(context),
+        this.enrichThemeVulnerabilities(context),
       ]);
       limitations.push(...enrichmentLimitations.filter((l): l is string => l !== undefined));
     }
@@ -263,6 +269,50 @@ export class AuditOrchestrator {
     }
     context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, result.value);
     return undefined;
+  }
+
+  /**
+   * WPScan CVE enrichment is audit-only per CLAUDE.md's "what each mode may
+   * touch" — unlike the WordPress.org lookups above, this never runs in
+   * prospect mode, regardless of whether WPSCAN_API_TOKEN is configured.
+   * Also skipped when the token isn't configured at all, so a disabled
+   * WPScan integration leaves no misleading "we checked, found nothing"
+   * enrichment entry (the client itself would return ok([]) either way).
+   */
+  private async enrichPluginVulnerabilities(context: AuditContext): Promise<string | undefined> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+
+    const plugins = this.getScannerData<{ plugins: DetectedPlugin[] }>(
+      context,
+      'plugin-scanner',
+    )?.plugins;
+    if (!plugins) return undefined;
+
+    return this.enrichBySlug(
+      context,
+      plugins,
+      (slug) => this.wpscanClient.getPluginVulnerabilities(slug),
+      WPSCAN_PLUGIN_ENRICHMENT,
+      'wpscan plugin vulnerability',
+    );
+  }
+
+  private async enrichThemeVulnerabilities(context: AuditContext): Promise<string | undefined> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+
+    const themes = this.getScannerData<{ themes: DetectedTheme[] }>(
+      context,
+      'theme-scanner',
+    )?.themes;
+    if (!themes) return undefined;
+
+    return this.enrichBySlug(
+      context,
+      themes,
+      (slug) => this.wpscanClient.getThemeVulnerabilities(slug),
+      WPSCAN_THEME_ENRICHMENT,
+      'wpscan theme vulnerability',
+    );
   }
 
   private async enrichBySlug<T>(

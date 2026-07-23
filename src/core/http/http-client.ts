@@ -16,6 +16,8 @@ export interface HttpClientOptions {
   maxRedirects: number;
   maxResponseBytes: number;
   userAgent: string;
+  /** Extra request headers (e.g. Authorization for an authenticated API). Never overrides user-agent. */
+  headers?: Record<string, string>;
 }
 
 export interface HttpClient {
@@ -163,7 +165,7 @@ export class UndiciHttpClient implements HttpClient {
           response = await undiciRequest(currentUrl, {
             dispatcher,
             method: 'GET',
-            headers: { 'user-agent': options.userAgent },
+            headers: { ...options.headers, 'user-agent': options.userAgent },
             signal: controller.signal,
           });
         } catch (cause) {

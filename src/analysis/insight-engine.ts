@@ -11,6 +11,12 @@ import type { Finding, Insight } from '../core/types/index.js';
  */
 const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => boolean }> = [
   {
+    messageKey: 'insight.knownVulnerabilities',
+    matches: (finding) =>
+      finding.recommendationKey.startsWith('finding.plugin.vulnerability') ||
+      finding.recommendationKey.startsWith('finding.theme.vulnerability'),
+  },
+  {
     messageKey: 'insight.priority',
     matches: (finding) => finding.severity === 'critical' || finding.severity === 'high',
   },

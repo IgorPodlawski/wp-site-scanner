@@ -6,7 +6,10 @@ import { buildTarget } from '../../core/types/target.js';
 import { AuditOrchestrator } from '../../core/orchestrator/audit-orchestrator.js';
 import type { AuditRequest } from '../../core/orchestrator/audit-request.js';
 import { createScanners } from '../../scanners/scanner-registry.js';
-import { createWordPressOrgClient } from '../../integrations/integration-registry.js';
+import {
+  createWordPressOrgClient,
+  createWpscanClient,
+} from '../../integrations/integration-registry.js';
 import { loadConfig } from '../../config/load-config.js';
 import { createLogger } from '../../utils/logger.js';
 import { AuditFailureError } from '../../core/errors.js';
@@ -40,6 +43,9 @@ export function registerAuditCommand(program: Command): void {
         profile: options.profile,
         lang: options.lang,
         useCache: options.cache,
+        ...(options.iHaveAuthorization
+          ? { consent: { confirmed: true, source: 'cli-flag' as const } }
+          : {}),
       };
 
       printMessage('cli.audit.starting', { mode: request.requestedMode, target: target.domain });
@@ -51,6 +57,7 @@ export function registerAuditCommand(program: Command): void {
         config,
         logger,
         createWordPressOrgClient(config),
+        createWpscanClient(config),
       );
 
       try {
