@@ -32,7 +32,7 @@ export function createScanners(config: AppConfig): Scanner[] {
     new CoreVersionScanner(),
     new PluginScanner(httpClientOptions, new UndiciHttpClient()),
     new ThemeScanner(httpClientOptions, new UndiciHttpClient()),
-    new EndpointScanner(),
+    new EndpointScanner(httpClientOptions, new UndiciHttpClient()),
     new HeaderScanner(),
     new TlsScanner(config.HTTP_TIMEOUT_MS),
   ];
