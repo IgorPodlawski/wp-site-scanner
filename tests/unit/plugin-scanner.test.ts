@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PluginScanner } from '@scanners/plugin-scanner.js';
 import { DefaultAuditContext } from '@core/types/audit-context.js';
 import { buildTarget } from '@core/types/target.js';
-import type { AuthorizationMode } from '@core/types/authorization.js';
+import type { AuthorizationMode, IntensityProfile } from '@core/types/authorization.js';
 import type { HttpClient, HttpClientOptions, HttpResponse } from '@core/http/http-client.js';
 
 const OPTIONS: HttpClientOptions = {
@@ -12,11 +12,15 @@ const OPTIONS: HttpClientOptions = {
   userAgent: 'wp-audit-test/0.1',
 };
 
-function createContext(body: string, authorizationMode: AuthorizationMode = 'prospect') {
+function createContext(
+  body: string,
+  authorizationMode: AuthorizationMode = 'prospect',
+  profile: IntensityProfile = 'standard',
+) {
   const context = new DefaultAuditContext({
     target: buildTarget('https://example.com'),
     authorizationMode,
-    profile: 'standard',
+    profile,
     startedAt: new Date(0).toISOString(),
   });
   const response: HttpResponse = { url: 'https://example.com/', status: 200, headers: {}, body };
@@ -131,6 +135,120 @@ describe('PluginScanner', () => {
           version: { value: '5.3', sources: ['asset-query-string'], confidence: 'inferred' },
         },
       ],
+    });
+  });
+
+  describe('--profile deep asset scanning', () => {
+    it('fetches CSS/JS assets referenced from the homepage and scans them too', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async (url) => {
+          if (url === 'https://example.com/app.js') {
+            return {
+              url,
+              status: 200,
+              headers: {},
+              body: '/* @import url(/wp-content/plugins/akismet/style.css) */',
+            };
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
+      };
+      const context = createContext('<script src="/app.js"></script>', 'prospect', 'deep');
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({ plugins: [{ slug: 'akismet' }] });
+    });
+
+    it('does not fetch any assets at the standard profile', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async () => {
+          throw new Error('should not fetch assets outside --profile deep');
+        },
+      };
+      const context = createContext('<script src="/app.js"></script>', 'prospect', 'standard');
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({ plugins: [] });
+    });
+  });
+
+  describe('--profile deep dictionary enumeration (Layer 3, audit only)', () => {
+    it('discovers a dictionary plugin via readme.txt that Layer 1 never referenced', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async (url) => {
+          if (url === 'https://example.com/wp-content/plugins/woocommerce/readme.txt') {
+            return { url, status: 200, headers: {}, body: 'Stable tag: 8.0\n' };
+          }
+          return { url, status: 404, headers: {}, body: 'not found' };
+        },
+      };
+      const context = createContext('<html></html>', 'audit', 'deep');
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({
+        plugins: [
+          {
+            slug: 'woocommerce',
+            version: { value: '8.0', sources: ['plugin-readme'], confidence: 'corroborated' },
+          },
+        ],
+      });
+    });
+
+    it('does not re-probe a slug Layer 1 already detected', async () => {
+      let woocommerceProbeCount = 0;
+      const httpClient: HttpClient = {
+        fetchUrl: async (url) => {
+          if (url.includes('/woocommerce/readme.txt')) woocommerceProbeCount += 1;
+          return { url, status: 404, headers: {}, body: 'not found' };
+        },
+      };
+      const context = createContext(
+        '<script src="/wp-content/plugins/woocommerce/app.js"></script>',
+        'audit',
+        'deep',
+      );
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({ plugins: [{ slug: 'woocommerce' }] });
+      // Layer 1 already found it, then Layer 2's own readme probe (not the dictionary) runs once.
+      expect(woocommerceProbeCount).toBe(1);
+    });
+
+    it('does not run dictionary enumeration in prospect mode, even at --profile deep', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async () => {
+          throw new Error('dictionary enumeration must never run in prospect mode');
+        },
+      };
+      const context = createContext('<html></html>', 'prospect', 'deep');
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({ plugins: [] });
+    });
+
+    it('does not run dictionary enumeration at the standard profile, even in audit mode', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async () => {
+          throw new Error('dictionary enumeration must never run outside --profile deep');
+        },
+      };
+      const context = createContext('<html></html>', 'audit', 'standard');
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      expect(result.data).toEqual({ plugins: [] });
     });
   });
 });

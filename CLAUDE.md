@@ -34,7 +34,12 @@ The tool has **two independent axes**. Do not collapse them into one flag. This 
 
 The profile is **always bounded by the mode**. `--profile deep` in `prospect` mode does more thorough Layer-1 work and third-party enrichment — it still never probes guessed paths. Only `audit` mode unlocks Layer 2 and Layer 3.
 
-> **Current gap:** `profile` is parsed, validated, and persisted on `AuditRequest`/`AuditResult`, but no scanner or enrichment step actually branches on it yet — `quick`/`standard`/`deep` all currently run identically. Layer 3 dictionary enumeration (deep + audit only) doesn't exist at all yet. Implementing profile-aware behavior is unstarted work, not a design decision to preserve.
+**`--profile deep` is implemented** for `PluginScanner`/`ThemeScanner` (both modes get it; the two halves are independently gated):
+
+- **prospect + deep:** also fetches the CSS/JS assets the homepage already references (`core/http/asset-links.ts`) and scans those bodies too — still Layer 1, never a guessed path, since every URL fetched was already linked from the page.
+- **audit + deep only:** Layer 3 dictionary enumeration — probes a small, curated, individually-verified list of well-known plugin/theme slugs (~50 plugins, ~14 themes, hardcoded in each scanner) via `readme.txt`/`style.css`, for anything Layers 1–2 missed because its slug never appears anywhere on the homepage. Discovered components are merged into the _same_ `plugins`/`themes` array Layer 1 populates, so they automatically get WordPress.org outdated-checks and WPScan CVE lookups for free — no separate wiring needed. Verified live against wordpress.org: this is what actually found `akismet`/`jetpack`/`bbpress`/etc., none of which are referenced anywhere in that homepage's HTML.
+- `quick`/`standard` currently behave identically to each other (no scanner distinguishes them) — only `deep` unlocks anything. Every other scanner ignores `profile` entirely.
+- Any slug added to either dictionary should be verified against the live `api.wordpress.org/plugins|themes/info/` endpoint first — a typo'd slug just silently never matches anything, and this is deliberately a small curated list, not a wordlist (see the Mission's "NOT a brute-force tool").
 
 ## What each mode may touch
 
@@ -540,7 +545,7 @@ Status as of the last update to this doc — keep this section current; it's the
 
 **Phase 2** — WPScan API, PageSpeed, cache, scoring. **✅ Done.** WPScan CVE enrichment: audit-mode-gated, verified against the live API. PageSpeed: prospect-safe, verified against the live API, feeds real findings into the `performance` score category (previously always 100). Cache (`FileCacheStore`, `provider:type:identifier:version` keys): done. Scoring (`analysis/scoring-engine.ts`, explicit deduction table): done.
 
-**Phase 3** — batch mode (with consent handling), history, compare, deep profile. **Not started.** `wp-audit batch`/`wp-audit history` are registered commands that just print "not implemented." `--profile` is accepted and persisted but doesn't change any scanner/enrichment behavior yet (all profiles currently run identically). Layer 3 dictionary enumeration doesn't exist.
+**Phase 3** — batch mode (with consent handling), history, compare, deep profile. **Deep profile: done** (see Axis 2 above — `PluginScanner`/`ThemeScanner` asset-scanning at prospect+deep, Layer 3 dictionary enumeration at audit+deep, verified live). **Batch mode, history, compare: not started.** `wp-audit batch`/`wp-audit history` are registered commands that just print "not implemented."
 
 **Phase 4** — SQLite, PDF export, AI-generated sales email. **Not started.** `pdf-report.ts` is an intentional stub (own docstring says Phase 4); the HTML template it will render is already built and print-friendly, so PDF should be "render the same template," not a new layout, once an engine is chosen.
 
