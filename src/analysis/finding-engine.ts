@@ -60,6 +60,7 @@ function deriveHeaderFindings(data: HeaderScannerData): Finding[] {
         sourceLayer: 1,
         businessImpact: 'weak',
         recommendationKey: 'finding.header.infoDisclosure.recommendation',
+        recommendationParams: { header },
         evidence: [
           {
             descriptionKey: 'finding.header.infoDisclosure.evidence',
@@ -240,6 +241,7 @@ function deriveOutdatedComponentFindings(
         sourceLayer: 1,
         businessImpact: 'medium',
         recommendationKey: `${messageKeyPrefix}.recommendation`,
+        recommendationParams: { slug: component.slug },
         evidence: [
           {
             descriptionKey: `${messageKeyPrefix}.evidence`,

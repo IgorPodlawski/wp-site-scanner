@@ -11,6 +11,8 @@ import { loadConfig } from '../../config/load-config.js';
 import { createLogger } from '../../utils/logger.js';
 import { AuditFailureError } from '../../core/errors.js';
 import { auditResultPathForResult } from '../../storage/paths.js';
+import { renderHtml } from '../../reports/html-report.js';
+import { saveHtmlReport } from '../../reports/report-generator.js';
 
 const auditOptionsSchema = z.object({
   profile: z.enum(['quick', 'standard', 'deep']).default('standard'),
@@ -59,6 +61,10 @@ export function registerAuditCommand(program: Command): void {
           target: result.target.domain,
           path: savedPath,
         });
+
+        const html = await renderHtml(result, options.lang);
+        const htmlPath = await saveHtmlReport(result, html);
+        printMessage('cli.audit.reportSaved', { path: htmlPath });
       } catch (error) {
         if (error instanceof AuditFailureError) {
           printError(error.message);

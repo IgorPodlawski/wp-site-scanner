@@ -1,18 +1,106 @@
-<!-- TODO (Phase 1): build the real PDF-friendly report template.
-     PDF is a render of this same template (Phase 4), so keep layout/CSS
-     print-friendly from the start: avoid fixed viewport-height assumptions,
-     use print-safe units, avoid unprintable interactive elements.
-
-     Named regions to fill in (currently placeholders, not a wired templating
-     engine — engine choice, e.g. Handlebars/Eta, is Phase 1 feature work):
-       {{summary}}      - audit summary (target, mode, profile, status, dates)
-       {{scores}}       - ScoreSummary by category
-       {{findings}}     - Finding list with severity/confidence/evidence
-       {{plugins}}      - detected plugins
-       {{theme}}        - detected theme
-       {{recommendations}} - per-finding recommendations
-       {{salesInsights}}   - evidence-based sales insights
-       {{limitations}}     - degraded/partial enrichment notes
-       {{disclaimer}}       - public-information-only disclaimer
-       {{consentArtifact}}  - audit-mode consent record, when present
--->
+<!doctype html>
+<html lang="{{LANG}}">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{REPORT_TITLE}}</title>
+    <style>
+      /* Print-friendly from the start (PDF, Phase 4, renders this same template):
+         standard units only, no viewport-relative sizing, no fixed heights,
+         no interactive elements, and finding cards avoid breaking across pages. */
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #1a1a1a;
+        margin: 2rem;
+        line-height: 1.5;
+      }
+      h1,
+      h2 {
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.3rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.4rem 0.6rem;
+        border-bottom: 1px solid #eee;
+      }
+      .badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        color: #fff;
+      }
+      .severity-info {
+        background: #6b7280;
+      }
+      .severity-low {
+        background: #2563eb;
+      }
+      .severity-medium {
+        background: #d97706;
+      }
+      .severity-high {
+        background: #dc2626;
+      }
+      .severity-critical {
+        background: #7f1d1d;
+      }
+      .finding {
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        break-inside: avoid;
+      }
+      .finding-meta {
+        color: #555;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+      }
+      .finding-evidence {
+        margin: 0.4rem 0;
+      }
+      .finding-recommendation {
+        margin: 0.4rem 0;
+        font-weight: bold;
+      }
+      .insight {
+        border-left: 4px solid #2563eb;
+        padding: 0.5rem 1rem;
+        margin-bottom: 0.75rem;
+        background: #f8fafc;
+      }
+      .empty-state {
+        color: #777;
+      }
+      .disclaimer {
+        font-size: 0.85rem;
+        color: #555;
+        margin-top: 2rem;
+        border-top: 1px solid #ddd;
+        padding-top: 1rem;
+      }
+      @media print {
+        body {
+          margin: 1cm;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>{{REPORT_TITLE}}</h1>
+    {{SUMMARY_SECTION}} {{SCORES_SECTION}} {{INSIGHTS_SECTION}} {{FINDINGS_SECTION}}
+    {{PLUGINS_SECTION}} {{THEME_SECTION}} {{LIMITATIONS_SECTION}} {{CONSENT_SECTION}}
+    <p class="disclaimer">{{DISCLAIMER}}</p>
+  </body>
+</html>

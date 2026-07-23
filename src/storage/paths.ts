@@ -33,3 +33,14 @@ export function auditResultPathForResult(result: {
 }): string {
   return auditResultPath(result.target.domain, result.finishedAt.replace(/[:.]/g, '-'));
 }
+
+export function htmlReportPath(domain: string, timestamp: string): string {
+  return path.join(resolveReportsDir(), domain, `${timestamp}.html`);
+}
+
+export function htmlReportPathForResult(result: {
+  target: { domain: string };
+  finishedAt: string;
+}): string {
+  return htmlReportPath(result.target.domain, result.finishedAt.replace(/[:.]/g, '-'));
+}

@@ -112,6 +112,8 @@ describe('generateFindings', () => {
         severity: 'info',
         recommendationKey: 'finding.header.infoDisclosure.recommendation',
       });
+      // recommendationParams must carry {{header}} — the recommendation message interpolates it
+      expect(findings[0]!.recommendationParams).toEqual({ header: 'server' });
       expect(findings[0]!.evidence[0]!.params).toEqual({
         header: 'server',
         value: 'Apache/2.4.41',
@@ -327,6 +329,8 @@ describe('generateFindings', () => {
         confidence: 'corroborated',
         recommendationKey: 'finding.plugin.outdated.recommendation',
       });
+      // recommendationParams must carry {{slug}} — the recommendation message interpolates it
+      expect(findings[0]!.recommendationParams).toEqual({ slug: 'akismet' });
     });
 
     it('flags nothing when the installed version already matches the latest', () => {
