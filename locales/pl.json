@@ -102,6 +102,11 @@
   "finding.theme.vulnerability.potential.evidence": "Motyw {{slug}} (wykryta wersja {{installed}}) może być narażony na publicznie znaną podatność: {{title}}.",
   "finding.theme.vulnerability.potential.recommendation": "Zweryfikuj zainstalowaną wersję motywu {{slug}} i zaktualizuj go, jeśli odpowiada znanemu zakresowi podatności.",
 
+  "finding.performance.poor.evidence": "Wynik wydajności mobilnej PageSpeed tej strony to {{score}} na 100 (Google Lighthouse) — Google klasyfikuje to jako słaby.",
+  "finding.performance.poor.recommendation": "Zbadaj i popraw wydajność ładowania strony na urządzeniach mobilnych — słaby wynik może szkodzić zarówno doświadczeniu użytkownika, jak i pozycji w wyszukiwarce.",
+  "finding.performance.needsImprovement.evidence": "Wynik wydajności mobilnej PageSpeed tej strony to {{score}} na 100 (Google Lighthouse) — Google klasyfikuje to jako wymagający poprawy.",
+  "finding.performance.needsImprovement.recommendation": "Rozważ poprawę wydajności ładowania strony na urządzeniach mobilnych — jest wymierne pole do poprawy, zanim stanie się to problemem odczuwalnym przez użytkowników.",
+
   "score.category.security": "Bezpieczeństwo",
   "score.category.maintenance": "Utrzymanie",
   "score.category.performance": "Wydajność",
@@ -115,5 +120,6 @@
   "insight.missingSecurityHeaders": "W odpowiedziach serwisu brakuje {{count}} rekomendowanego(ych) nagłówka(ów) bezpieczeństwa — ich dodanie jest zwykle niedrogie i zmniejsza typową powierzchnię ataku.",
   "insight.infoDisclosure": "Serwer ujawnia w nagłówkach HTTP pewne szczegóły techniczne ({{count}} przypadek/przypadki), które mogłyby pomóc atakującemu rozpoznać stos technologiczny.",
   "insight.tlsConfiguration": "Konfiguracja TLS/HTTPS serwisu ma {{count}} obszar(ów) do poprawy.",
-  "insight.exposedEndpoints": "{{count}} punkt(y) administracyjny(e) lub diagnostyczny(e) wydaje się być publicznie dostępny(mi) i mogą być warte ograniczenia."
+  "insight.exposedEndpoints": "{{count}} punkt(y) administracyjny(e) lub diagnostyczny(e) wydaje się być publicznie dostępny(mi) i mogą być warte ograniczenia.",
+  "insight.performance": "Wydajność ładowania strony na urządzeniach mobilnych ma pole do poprawy, na podstawie własnego pomiaru Google dla tej strony."
 }

@@ -9,6 +9,7 @@ import { createScanners } from '../../scanners/scanner-registry.js';
 import {
   createWordPressOrgClient,
   createWpscanClient,
+  createPageSpeedClient,
 } from '../../integrations/integration-registry.js';
 import { loadConfig } from '../../config/load-config.js';
 import { createLogger } from '../../utils/logger.js';
@@ -58,6 +59,7 @@ export function registerAuditCommand(program: Command): void {
         logger,
         createWordPressOrgClient(config),
         createWpscanClient(config),
+        createPageSpeedClient(config),
       );
 
       try {

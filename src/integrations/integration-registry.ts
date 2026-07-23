@@ -4,6 +4,7 @@ import { FileCacheStore } from '../storage/cache-store.js';
 import { resolveCacheDir } from '../storage/paths.js';
 import { WordPressOrgClient } from './wordpress-org-client.js';
 import { WpscanClient } from './wpscan-client.js';
+import { PageSpeedClient } from './pagespeed-client.js';
 
 function buildHttpClientOptions(config: AppConfig): HttpClientOptions {
   return {
@@ -23,4 +24,9 @@ export function createWordPressOrgClient(config: AppConfig): WordPressOrgClient 
 export function createWpscanClient(config: AppConfig): WpscanClient {
   const cache = new FileCacheStore(resolveCacheDir(config));
   return new WpscanClient(config, new UndiciHttpClient(), buildHttpClientOptions(config), cache);
+}
+
+export function createPageSpeedClient(config: AppConfig): PageSpeedClient {
+  const cache = new FileCacheStore(resolveCacheDir(config));
+  return new PageSpeedClient(config, new UndiciHttpClient(), buildHttpClientOptions(config), cache);
 }

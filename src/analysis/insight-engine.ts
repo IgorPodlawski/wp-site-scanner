@@ -44,6 +44,10 @@ const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => 
     messageKey: 'insight.exposedEndpoints',
     matches: (finding) => finding.recommendationKey.startsWith('finding.endpoint.'),
   },
+  {
+    messageKey: 'insight.performance',
+    matches: (finding) => finding.recommendationKey.startsWith('finding.performance.'),
+  },
 ];
 
 export function generateInsights(findings: readonly Finding[]): Insight[] {

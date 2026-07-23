@@ -13,6 +13,7 @@ import type { AuditRequest } from './audit-request.js';
 import type { AppConfig } from '../../config/types.js';
 import type { Logger } from '../../utils/logger.js';
 import { buildTarget } from '../types/target.js';
+import type { HttpResponse } from '../http/http-client.js';
 import { DefaultAuditContext } from '../types/audit-context.js';
 import { createFinding } from '../types/finding.js';
 import { AuditFailureError, MissingConsentError } from '../errors.js';
@@ -24,11 +25,13 @@ import {
   WORDPRESS_ORG_CORE_ENRICHMENT,
   WPSCAN_PLUGIN_ENRICHMENT,
   WPSCAN_THEME_ENRICHMENT,
+  PAGESPEED_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
 import { calculateScores } from '../../analysis/scoring-engine.js';
 import { generateInsights } from '../../analysis/insight-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
 import type { WpscanClient } from '../../integrations/wpscan-client.js';
+import type { PageSpeedClient } from '../../integrations/pagespeed-client.js';
 import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../../scanners/theme-scanner.js';
@@ -99,6 +102,7 @@ export class AuditOrchestrator {
     private readonly logger: Logger,
     private readonly wordPressOrgClient: WordPressOrgClient,
     private readonly wpscanClient: WpscanClient,
+    private readonly pageSpeedClient: PageSpeedClient,
   ) {}
 
   filterScanners(mode: AuthorizationMode): Scanner[] {
@@ -130,6 +134,7 @@ export class AuditOrchestrator {
         this.enrichCore(context),
         this.enrichPluginVulnerabilities(context),
         this.enrichThemeVulnerabilities(context),
+        this.enrichPerformance(context),
       ]);
       limitations.push(...enrichmentLimitations.filter((l): l is string => l !== undefined));
     }
@@ -313,6 +318,31 @@ export class AuditOrchestrator {
       WPSCAN_THEME_ENRICHMENT,
       'wpscan theme vulnerability',
     );
+  }
+
+  /**
+   * PageSpeed is prospect-safe third-party enrichment (Google fetches the
+   * target, not us — see CLAUDE.md's "what each mode may touch"), so this
+   * runs regardless of authorization mode. Disabled entirely when
+   * PAGESPEED_API_KEY isn't configured — the client itself returns
+   * ok(undefined) either way, but skipping here avoids writing a
+   * misleading empty enrichment entry.
+   */
+  private async enrichPerformance(context: AuditContext): Promise<string | undefined> {
+    if (!this.config.pagespeedEnabled) return undefined;
+
+    const homepage = context.getHttpResponse() as HttpResponse | undefined;
+    if (!homepage) return undefined;
+
+    const result = await this.pageSpeedClient.analyze(homepage.url);
+    if (!result.ok) {
+      this.logger.warn({ error: result.error.message }, 'PageSpeed analysis failed');
+      return 'PageSpeed analysis failed';
+    }
+    if (result.value) {
+      context.setEnrichment(PAGESPEED_ENRICHMENT, result.value);
+    }
+    return undefined;
   }
 
   private async enrichBySlug<T>(

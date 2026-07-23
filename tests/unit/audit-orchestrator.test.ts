@@ -8,6 +8,7 @@ import type { Logger } from '@utils/logger.js';
 import { saveAuditResult } from '@storage/json-store.js';
 import type { WordPressOrgClient } from '@integrations/wordpress-org-client.js';
 import type { WpscanClient } from '@integrations/wpscan-client.js';
+import type { PageSpeedClient } from '@integrations/pagespeed-client.js';
 import { ok, err } from '@utils/result.js';
 
 vi.mock('@storage/json-store.js', () => ({ saveAuditResult: vi.fn(async () => '/tmp/fake.json') }));
@@ -49,6 +50,15 @@ function fakeWpscanClient(overrides: Partial<WpscanClient> = {}): WpscanClient {
 
 const NO_OP_WPSCAN_CLIENT = fakeWpscanClient();
 
+function fakePageSpeedClient(overrides: Partial<PageSpeedClient> = {}): PageSpeedClient {
+  return {
+    analyze: async () => ok(undefined),
+    ...overrides,
+  } as unknown as PageSpeedClient;
+}
+
+const NO_OP_PAGESPEED_CLIENT = fakePageSpeedClient();
+
 const PROSPECT_REQUEST: AuditRequest = {
   targetInput: 'https://example.com',
   requestedMode: 'prospect',
@@ -85,6 +95,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -118,6 +129,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -152,6 +164,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -178,6 +191,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     await expect(orchestrator.run(PROSPECT_REQUEST)).rejects.toThrow(SsrfRejectedError);
@@ -196,6 +210,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -245,6 +260,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       wordPressOrgClient,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -282,6 +298,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       wordPressOrgClient,
       NO_OP_WPSCAN_CLIENT,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -316,6 +333,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -362,6 +380,7 @@ describe('AuditOrchestrator.run', () => {
       FAKE_LOGGER,
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
+      NO_OP_PAGESPEED_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -377,5 +396,86 @@ describe('AuditOrchestrator.run', () => {
       confidence: 'confirmed',
       recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
     });
+  });
+
+  it('enriches performance via PageSpeed (prospect-safe) and emits a poor-performance finding', async () => {
+    const httpScanner = fakeScanner('http-scanner', {
+      run: async (context) => {
+        context.setHttpResponse({
+          url: 'https://example.com/',
+          status: 200,
+          headers: {},
+          body: '',
+        });
+        return { scannerName: 'http-scanner', status: 'ok', durationMs: 0 };
+      },
+    });
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pageSpeedClient = fakePageSpeedClient({
+      analyze: async (url: string) => {
+        expect(url).toBe('https://example.com/');
+        return ok({ performanceScore: 35, coreWebVitals: {} });
+      },
+    });
+    const orchestrator = new AuditOrchestrator(
+      [httpScanner, detector],
+      { ...TEST_CONFIG, pagespeedEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
+      pageSpeedClient,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('completed');
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      category: 'performance',
+      severity: 'high',
+      confidence: 'confirmed',
+      recommendationKey: 'finding.performance.poor.recommendation',
+    });
+  });
+
+  it('downgrades to partial when the PageSpeed analysis fails', async () => {
+    const httpScanner = fakeScanner('http-scanner', {
+      run: async (context) => {
+        context.setHttpResponse({
+          url: 'https://example.com/',
+          status: 200,
+          headers: {},
+          body: '',
+        });
+        return { scannerName: 'http-scanner', status: 'ok', durationMs: 0 };
+      },
+    });
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pageSpeedClient = fakePageSpeedClient({
+      analyze: async () => err(new Error('Lighthouse could not load the page')),
+    });
+    const orchestrator = new AuditOrchestrator(
+      [httpScanner, detector],
+      { ...TEST_CONFIG, pagespeedEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      NO_OP_WPSCAN_CLIENT,
+      pageSpeedClient,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('partial');
+    expect(result.limitations).toEqual(['PageSpeed analysis failed']);
   });
 });

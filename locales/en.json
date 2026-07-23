@@ -102,6 +102,11 @@
   "finding.theme.vulnerability.potential.evidence": "The {{slug}} theme (detected version {{installed}}) may be affected by a publicly known vulnerability: {{title}}.",
   "finding.theme.vulnerability.potential.recommendation": "Verify the installed version of the {{slug}} theme and update it if it matches a known-vulnerable range.",
 
+  "finding.performance.poor.evidence": "This site's mobile PageSpeed performance score is {{score}} out of 100 (Google Lighthouse) — Google classifies this as poor.",
+  "finding.performance.poor.recommendation": "Investigate and improve mobile page load performance — a poor score can hurt both user experience and search ranking.",
+  "finding.performance.needsImprovement.evidence": "This site's mobile PageSpeed performance score is {{score}} out of 100 (Google Lighthouse) — Google classifies this as needing improvement.",
+  "finding.performance.needsImprovement.recommendation": "Consider improving mobile page load performance — there is measurable room to improve before it becomes a user-facing problem.",
+
   "score.category.security": "Security",
   "score.category.maintenance": "Maintenance",
   "score.category.performance": "Performance",
@@ -115,5 +120,6 @@
   "insight.missingSecurityHeaders": "{{count}} recommended security header(s) are missing from the site's responses — these are typically inexpensive to add and reduce common attack surface.",
   "insight.infoDisclosure": "The server discloses some technical details in its HTTP headers ({{count}} instance(s)) that could help an attacker fingerprint the technology stack.",
   "insight.tlsConfiguration": "The site's TLS/HTTPS configuration has {{count}} area(s) that could be improved.",
-  "insight.exposedEndpoints": "{{count}} administrative or diagnostic endpoint(s) appear to be publicly reachable and may be worth restricting."
+  "insight.exposedEndpoints": "{{count}} administrative or diagnostic endpoint(s) appear to be publicly reachable and may be worth restricting.",
+  "insight.performance": "Mobile page load performance has room for improvement, based on Google's own measurement of this site."
 }

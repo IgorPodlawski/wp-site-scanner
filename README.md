@@ -1,10 +1,10 @@
 # wp-site-scanner (wp-audit)
 
-Black-box WordPress quality assessment CLI. It scans a target from the public Internet, detects WordPress core/plugin/theme versions, checks security headers and TLS, cross-references known WordPress.org and WPScan data, and produces a JSON + HTML report. See [CLAUDE.md](./CLAUDE.md) for the full project spec (mission, architecture, authorization model, and the current implementation status of every phase).
+Black-box WordPress quality assessment CLI. It scans a target from the public Internet, detects WordPress core/plugin/theme versions, checks security headers and TLS, cross-references known WordPress.org/WPScan/PageSpeed data, and produces a JSON + HTML report. See [CLAUDE.md](./CLAUDE.md) for the full project spec (mission, architecture, authorization model, and the current implementation status of every phase).
 
 ## Status
 
-The `audit` command works end-to-end today: all scanners, the orchestrator, WordPress.org + WPScan enrichment, findings, scoring, insights, and both JSON and HTML report generation are implemented. **`batch` and `history` are not implemented yet** — they're registered CLI commands that just print a "not implemented" message. See CLAUDE.md's Roadmap section for the up-to-date phase-by-phase status.
+The `audit` command works end-to-end today: all scanners, the orchestrator, WordPress.org + WPScan + PageSpeed enrichment, findings, scoring, insights, and both JSON and HTML report generation are implemented (Phase 1 and 2 done). **`batch` and `history` are not implemented yet** — they're registered CLI commands that just print a "not implemented" message. See CLAUDE.md's Roadmap section for the up-to-date phase-by-phase status.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ cp .env.example .env
 All `.env` values are optional to get started — the CLI validates them but never crashes on missing ones. Two are worth knowing about:
 
 - `WPSCAN_API_TOKEN` — without it, CVE/vulnerability findings are simply skipped (and only apply in `--i-have-authorization` runs to begin with; see "Authorization modes" below). Free tier is rate-limited (~100 requests/day) — results are cached for 7 days.
-- `PAGESPEED_API_KEY` — not used yet; the PageSpeed integration isn't implemented, so this currently does nothing.
+- `PAGESPEED_API_KEY` — without it, the `performance` score category has nothing feeding it and stays at 100. When configured, PageSpeed can take 10-20+ seconds per run (Google actually loads and audits the page) — this is normal, not a hang.
 
 ## Usage
 

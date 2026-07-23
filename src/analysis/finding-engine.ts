@@ -8,6 +8,7 @@ import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../scanners/theme-scanner.js';
 import type {
   CoreStableVersions,
+  PageSpeedResult,
   WordPressOrgPluginInfo,
   WordPressOrgThemeInfo,
   WpscanVulnerability,
@@ -20,6 +21,7 @@ export const WORDPRESS_ORG_THEME_ENRICHMENT = 'wordpress-org-themes';
 export const WORDPRESS_ORG_CORE_ENRICHMENT = 'wordpress-org-core';
 export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
 export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
+export const PAGESPEED_ENRICHMENT = 'pagespeed';
 
 function dataFrom<T>(results: readonly ScannerResult[], scannerName: string): T | undefined {
   const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
@@ -368,6 +370,46 @@ function deriveVulnerabilityFindings(
   return findings;
 }
 
+const PAGESPEED_GOOD_THRESHOLD = 90;
+const PAGESPEED_POOR_THRESHOLD = 50;
+
+/**
+ * Flags a low mobile PageSpeed performance score. `confidence: 'confirmed'`
+ * — this is Google's own Lighthouse measurement of this exact URL, not an
+ * inference, so it earns the same trust tier as e.g. wordpress.org's
+ * stable-check map. Only one finding per audit (never one per Core Web
+ * Vital) — the individual LCP/CLS/INP numbers live in `raw` for the JSON
+ * report, not as separate findings, per "three meaningful findings beat
+ * fifty weak ones."
+ */
+function derivePerformanceFindings(result: PageSpeedResult): Finding[] {
+  if (result.performanceScore >= PAGESPEED_GOOD_THRESHOLD) return [];
+
+  const isPoor = result.performanceScore < PAGESPEED_POOR_THRESHOLD;
+  const messageKeyPrefix = isPoor
+    ? 'finding.performance.poor'
+    : 'finding.performance.needsImprovement';
+
+  return [
+    createFinding({
+      id: randomUUID(),
+      category: 'performance',
+      confidence: 'confirmed',
+      requestedSeverity: isPoor ? 'high' : 'medium',
+      sourceLayer: 'third-party',
+      businessImpact: isPoor ? 'medium' : 'weak',
+      recommendationKey: `${messageKeyPrefix}.recommendation`,
+      evidence: [
+        {
+          descriptionKey: `${messageKeyPrefix}.evidence`,
+          params: { score: result.performanceScore },
+          raw: result.coreWebVitals,
+        },
+      ],
+    }),
+  ];
+}
+
 /**
  * Interprets raw scanner observations into Findings. Never emit raw scanner
  * output directly — every Finding goes through core/types/finding.ts's
@@ -444,6 +486,12 @@ export function generateFindings(context: AuditContext): Finding[] {
         'finding.theme.vulnerability',
       ),
     );
+  }
+
+  const pageSpeedResult = context.getEnrichment(PAGESPEED_ENRICHMENT) as
+    PageSpeedResult | undefined;
+  if (pageSpeedResult) {
+    findings.push(...derivePerformanceFindings(pageSpeedResult));
   }
 
   return findings;
