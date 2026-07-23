@@ -1,4 +1,4 @@
-import type { VersionConfidence, VersionSource } from '../core/types/version.js';
+import type { VersionConfidence, VersionInfo, VersionSource } from '../core/types/version.js';
 
 /**
  * Real, pure implementation of the version-confidence rules from CLAUDE.md:
@@ -17,4 +17,39 @@ export function deriveConfidence(sources: readonly VersionSource[]): VersionConf
     return only === 'asset-query-string' ? 'inferred' : 'corroborated';
   }
   return 'confirmed';
+}
+
+export interface VersionCandidate {
+  value: string;
+  source: VersionSource;
+}
+
+/**
+ * Merges same-valued candidates into one VersionInfo. Candidates that
+ * disagree never get merged into a false 'confirmed' — the largest
+ * agreeing group wins, and ties break toward whichever candidate was listed
+ * first (callers list their most-trusted source first).
+ */
+export function deriveVersionInfo(
+  candidates: ReadonlyArray<VersionCandidate | undefined>,
+): VersionInfo | undefined {
+  const present = candidates.filter((candidate): candidate is VersionCandidate => !!candidate);
+  if (present.length === 0) {
+    return undefined;
+  }
+
+  const groups = new Map<string, VersionSource[]>();
+  for (const { value, source } of present) {
+    const sources = groups.get(value);
+    if (sources) {
+      sources.push(source);
+    } else {
+      groups.set(value, [source]);
+    }
+  }
+
+  const maxSize = Math.max(...[...groups.values()].map((sources) => sources.length));
+  const [value, sources] = [...groups.entries()].find(([, s]) => s.length === maxSize)!;
+
+  return { value, sources, confidence: deriveConfidence(sources) };
 }

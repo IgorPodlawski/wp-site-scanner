@@ -2,6 +2,7 @@ import type { Scanner } from '../core/types/index.js';
 import type { AppConfig } from '../config/types.js';
 import type { HttpClientOptions } from '../core/http/http-client.js';
 import { HttpScanner } from './http-scanner.js';
+import { UndiciHttpClient } from '../core/http/http-client.js';
 import { WordPressDetector } from './wordpress-detector.js';
 import { CoreVersionScanner } from './core-version-scanner.js';
 import { PluginScanner } from './plugin-scanner.js';
@@ -29,7 +30,7 @@ export function createScanners(config: AppConfig): Scanner[] {
     new HttpScanner(httpClientOptions),
     new WordPressDetector(),
     new CoreVersionScanner(),
-    new PluginScanner(),
+    new PluginScanner(httpClientOptions, new UndiciHttpClient()),
     new ThemeScanner(),
     new EndpointScanner(),
     new HeaderScanner(),
