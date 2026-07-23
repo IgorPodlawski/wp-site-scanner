@@ -140,3 +140,96 @@ describe('WordPressOrgClient.getPluginInfo', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+const RAW_THEME = {
+  slug: 'twentytwentyfour',
+  version: '1.5',
+  last_updated: '2026-05-20',
+  active_installs: 500_000,
+};
+
+describe('WordPressOrgClient.getThemeInfo', () => {
+  it('fetches and maps snake_case to the internal shape', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async (url) => {
+        expect(url).toBe(
+          'https://api.wordpress.org/themes/info/1.2/?action=theme_information&request%5Bslug%5D=twentytwentyfour&request%5Bfields%5D%5Bactive_installs%5D=1',
+        );
+        return jsonResponse(RAW_THEME);
+      },
+    };
+    const client = new WordPressOrgClient(httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getThemeInfo('twentytwentyfour');
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: 'twentytwentyfour',
+        version: '1.5',
+        lastUpdated: '2026-05-20',
+        activeInstalls: 500_000,
+      },
+    });
+  });
+
+  it('returns ok(undefined) when wordpress.org reports the theme does not exist', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => jsonResponse({ error: 'Theme not found' }),
+    };
+    const client = new WordPressOrgClient(httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getThemeInfo('some-custom-theme');
+
+    expect(result).toEqual({ ok: true, value: undefined });
+  });
+
+  it('returns err() without throwing when the API is unreachable after a retry', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        throw new Error('connection reset');
+      },
+    };
+    const client = new WordPressOrgClient(httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getThemeInfo('twentytwentyfour');
+
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('WordPressOrgClient.getCoreStableVersions', () => {
+  it('fetches and validates the version -> status map, then caches it', async () => {
+    let callCount = 0;
+    const httpClient: HttpClient = {
+      fetchUrl: async (url) => {
+        callCount += 1;
+        expect(url).toBe('https://api.wordpress.org/core/stable-check/1.0/');
+        return jsonResponse({ '7.0.2': 'latest', '6.4': 'insecure', '7.0.1': 'outdated' });
+      },
+    };
+    const client = new WordPressOrgClient(httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getCoreStableVersions();
+
+    expect(result).toEqual({
+      ok: true,
+      value: { '7.0.2': 'latest', '6.4': 'insecure', '7.0.1': 'outdated' },
+    });
+    expect(callCount).toBe(1);
+
+    await client.getCoreStableVersions();
+    expect(callCount).toBe(1); // second call served from cache
+  });
+
+  it('returns err() without throwing when the response fails validation', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => jsonResponse({ '7.0.2': 'not-a-real-status' }),
+    };
+    const client = new WordPressOrgClient(httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getCoreStableVersions();
+
+    expect(result.ok).toBe(false);
+  });
+});

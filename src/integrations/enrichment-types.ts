@@ -12,6 +12,22 @@ export const wordPressOrgPluginInfoSchema = z.object({
 });
 export type WordPressOrgPluginInfo = z.infer<typeof wordPressOrgPluginInfoSchema>;
 
+export const wordPressOrgThemeInfoSchema = z.object({
+  slug: z.string(),
+  version: z.string(),
+  lastUpdated: z.string(),
+  activeInstalls: z.number().int().nonnegative(),
+});
+export type WordPressOrgThemeInfo = z.infer<typeof wordPressOrgThemeInfoSchema>;
+
+// wordpress.org/core/stable-check/1.0/ — a flat map of every released core
+// version to its current status. 'insecure' means WordPress.org itself
+// flags that version as having known vulnerabilities.
+export const coreVersionStatusSchema = z.enum(['latest', 'outdated', 'insecure']);
+export type CoreVersionStatus = z.infer<typeof coreVersionStatusSchema>;
+export const coreStableVersionsSchema = z.record(z.string(), coreVersionStatusSchema);
+export type CoreStableVersions = z.infer<typeof coreStableVersionsSchema>;
+
 export const wpscanVulnerabilitySchema = z.object({
   id: z.string(),
   title: z.string(),

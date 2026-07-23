@@ -27,9 +27,16 @@ const TEST_CONFIG: AppConfig = {
 
 const FAKE_LOGGER = { info: () => {}, warn: () => {}, error: () => {} } as unknown as Logger;
 
-const NO_OP_WORDPRESS_ORG_CLIENT = {
-  getPluginInfo: async () => ok(undefined),
-} as unknown as WordPressOrgClient;
+function fakeWordPressOrgClient(overrides: Partial<WordPressOrgClient> = {}): WordPressOrgClient {
+  return {
+    getPluginInfo: async () => ok(undefined),
+    getThemeInfo: async () => ok(undefined),
+    getCoreStableVersions: async () => ok({}),
+    ...overrides,
+  } as unknown as WordPressOrgClient;
+}
+
+const NO_OP_WORDPRESS_ORG_CLIENT = fakeWordPressOrgClient();
 
 const PROSPECT_REQUEST: AuditRequest = {
   targetInput: 'https://example.com',
@@ -209,12 +216,12 @@ describe('AuditOrchestrator.run', () => {
         durationMs: 0,
       }),
     });
-    const wordPressOrgClient = {
+    const wordPressOrgClient = fakeWordPressOrgClient({
       getPluginInfo: async (slug: string) =>
         slug === 'akismet'
           ? ok({ slug: 'akismet', version: '5.7', lastUpdated: '', activeInstalls: 1 })
           : ok(undefined),
-    } as unknown as WordPressOrgClient;
+    });
     const orchestrator = new AuditOrchestrator(
       [detector, pluginScanner],
       TEST_CONFIG,
@@ -248,9 +255,9 @@ describe('AuditOrchestrator.run', () => {
         durationMs: 0,
       }),
     });
-    const wordPressOrgClient = {
+    const wordPressOrgClient = fakeWordPressOrgClient({
       getPluginInfo: async () => err(new Error('timeout')),
-    } as unknown as WordPressOrgClient;
+    });
     const orchestrator = new AuditOrchestrator(
       [detector, pluginScanner],
       TEST_CONFIG,
@@ -261,6 +268,6 @@ describe('AuditOrchestrator.run', () => {
     const result = await orchestrator.run(PROSPECT_REQUEST);
 
     expect(result.status).toBe('partial');
-    expect(result.limitations).toEqual(['wordpress-org plugin lookup failed for 1 of 1 plugin(s)']);
+    expect(result.limitations).toEqual(['wordpress-org plugin lookup failed for 1 of 1 item(s)']);
   });
 });

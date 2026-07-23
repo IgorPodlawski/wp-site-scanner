@@ -40,6 +40,14 @@
   "finding.plugin.outdated.evidence": "Wtyczka {{slug}} jest w wersji {{installed}}, a najnowsza wersja na WordPress.org to {{latest}}.",
   "finding.plugin.outdated.recommendation": "Zaktualizuj wtyczkę {{slug}} do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
 
+  "finding.theme.outdated.evidence": "Motyw {{slug}} jest w wersji {{installed}}, a najnowsza wersja na WordPress.org to {{latest}}.",
+  "finding.theme.outdated.recommendation": "Zaktualizuj motyw {{slug}} do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
+
+  "finding.core.outdated.evidence": "Rdzeń WordPressa jest w wersji {{installed}}, którą WordPress.org oznacza jako nieaktualną.",
+  "finding.core.outdated.recommendation": "Zaktualizuj rdzeń WordPressa do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
+  "finding.core.insecure.evidence": "Rdzeń WordPressa jest w wersji {{installed}}, którą WordPress.org oznacza jako niebezpieczną (znane podatności).",
+  "finding.core.insecure.recommendation": "Zaktualizuj rdzeń WordPressa natychmiast — ta wersja ma publicznie znane podatności bezpieczeństwa.",
+
   "score.category.security": "Bezpieczeństwo",
   "score.category.maintenance": "Utrzymanie",
   "score.category.performance": "Wydajność",

@@ -40,6 +40,14 @@
   "finding.plugin.outdated.evidence": "The {{slug}} plugin is at version {{installed}}, but {{latest}} is the latest version on WordPress.org.",
   "finding.plugin.outdated.recommendation": "Update the {{slug}} plugin to the latest version to receive bug fixes and security patches.",
 
+  "finding.theme.outdated.evidence": "The {{slug}} theme is at version {{installed}}, but {{latest}} is the latest version on WordPress.org.",
+  "finding.theme.outdated.recommendation": "Update the {{slug}} theme to the latest version to receive bug fixes and security patches.",
+
+  "finding.core.outdated.evidence": "WordPress core is at version {{installed}}, which WordPress.org lists as outdated.",
+  "finding.core.outdated.recommendation": "Update WordPress core to the latest version to receive bug fixes and security patches.",
+  "finding.core.insecure.evidence": "WordPress core is at version {{installed}}, which WordPress.org flags as insecure (known vulnerabilities).",
+  "finding.core.insecure.recommendation": "Update WordPress core immediately — this version has publicly known security vulnerabilities.",
+
   "score.category.security": "Security",
   "score.category.maintenance": "Maintenance",
   "score.category.performance": "Performance",

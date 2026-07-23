@@ -1,15 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import type { AuditContext, Finding, ScannerResult } from '../core/types/index.js';
+import type { AuditContext, Finding, ScannerResult, VersionInfo } from '../core/types/index.js';
 import { createFinding } from '../core/types/finding.js';
 import type { HeaderScannerData, SecurityHeaderName } from '../scanners/header-scanner.js';
 import type { TlsProbeResult } from '../core/http/tls-probe.js';
 import type { EndpointScannerData } from '../scanners/endpoint-scanner.js';
 import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
-import type { WordPressOrgPluginInfo } from '../integrations/enrichment-types.js';
+import type { DetectedTheme } from '../scanners/theme-scanner.js';
+import type {
+  CoreStableVersions,
+  WordPressOrgPluginInfo,
+  WordPressOrgThemeInfo,
+} from '../integrations/enrichment-types.js';
 import { compareVersions } from './version-confidence.js';
 
-/** The context.setEnrichment() key AuditOrchestrator.enrichPlugins() writes to and this module reads from. */
+// The context.setEnrichment() keys AuditOrchestrator writes to and this module reads from.
 export const WORDPRESS_ORG_PLUGIN_ENRICHMENT = 'wordpress-org-plugins';
+export const WORDPRESS_ORG_THEME_ENRICHMENT = 'wordpress-org-themes';
+export const WORDPRESS_ORG_CORE_ENRICHMENT = 'wordpress-org-core';
 
 function dataFrom<T>(results: readonly ScannerResult[], scannerName: string): T | undefined {
   const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
@@ -195,42 +202,52 @@ function deriveEndpointFindings(data: EndpointScannerData): Finding[] {
   return findings;
 }
 
+interface OutdatedComponent {
+  slug: string;
+  version?: VersionInfo;
+}
+
 /**
- * Flags a detected plugin as outdated when its version is strictly older
- * than wordpress.org's latest — only for plugins wordpress.org actually
- * knows about (enrichment[slug] undefined means "not found there", not
- * "up to date") and only when compareVersions can actually compare the two
- * (it abstains rather than guess on a non-numeric segment). Confidence
+ * Flags a detected plugin/theme as outdated when its version is strictly
+ * older than wordpress.org's latest — only for components wordpress.org
+ * actually knows about (enrichment[slug] undefined means "not found there",
+ * not "up to date") and only when compareVersions can actually compare the
+ * two (it abstains rather than guess on a non-numeric segment). Confidence
  * carries over from the detected version itself — WP.org's "latest" figure
  * is treated as ground truth, so the weak link is how sure we are about
  * what's actually installed, and confidence-caps-severity bounds it from there.
  */
-function deriveOutdatedPluginFindings(
-  plugins: readonly DetectedPlugin[],
-  enrichment: Record<string, WordPressOrgPluginInfo | undefined>,
+function deriveOutdatedComponentFindings(
+  components: readonly OutdatedComponent[],
+  enrichment: Record<string, { version: string } | undefined>,
+  messageKeyPrefix: string,
 ): Finding[] {
   const findings: Finding[] = [];
 
-  for (const plugin of plugins) {
-    const latest = enrichment[plugin.slug];
-    if (!plugin.version || !latest) continue;
+  for (const component of components) {
+    const latest = enrichment[component.slug];
+    if (!component.version || !latest) continue;
 
-    const comparison = compareVersions(plugin.version.value, latest.version);
+    const comparison = compareVersions(component.version.value, latest.version);
     if (comparison !== -1) continue;
 
     findings.push(
       createFinding({
         id: randomUUID(),
         category: 'maintenance',
-        confidence: plugin.version.confidence,
+        confidence: component.version.confidence,
         requestedSeverity: 'medium',
         sourceLayer: 1,
         businessImpact: 'medium',
-        recommendationKey: 'finding.plugin.outdated.recommendation',
+        recommendationKey: `${messageKeyPrefix}.recommendation`,
         evidence: [
           {
-            descriptionKey: 'finding.plugin.outdated.evidence',
-            params: { slug: plugin.slug, installed: plugin.version.value, latest: latest.version },
+            descriptionKey: `${messageKeyPrefix}.evidence`,
+            params: {
+              slug: component.slug,
+              installed: component.version.value,
+              latest: latest.version,
+            },
           },
         ],
       }),
@@ -238,6 +255,45 @@ function deriveOutdatedPluginFindings(
   }
 
   return findings;
+}
+
+/**
+ * Flags the detected core version by consulting wordpress.org's
+ * version -> status map directly, rather than a numeric comparison — an
+ * 'insecure' status is wordpress.org itself confirming known
+ * vulnerabilities, which is why this is a 'security' finding (not
+ * 'maintenance') at a higher requested severity than a plain "outdated".
+ * A version absent from the map (unreleased/malformed) is left unflagged.
+ */
+function deriveCoreVersionFindings(
+  version: VersionInfo | undefined,
+  stableVersions: CoreStableVersions,
+): Finding[] {
+  if (!version) return [];
+
+  const status = stableVersions[version.value];
+  if (!status || status === 'latest') return [];
+
+  const isInsecure = status === 'insecure';
+  const messageKeyPrefix = isInsecure ? 'finding.core.insecure' : 'finding.core.outdated';
+
+  return [
+    createFinding({
+      id: randomUUID(),
+      category: isInsecure ? 'security' : 'maintenance',
+      confidence: version.confidence,
+      requestedSeverity: isInsecure ? 'critical' : 'medium',
+      sourceLayer: 1,
+      businessImpact: isInsecure ? 'strong' : 'medium',
+      recommendationKey: `${messageKeyPrefix}.recommendation`,
+      evidence: [
+        {
+          descriptionKey: `${messageKeyPrefix}.evidence`,
+          params: { installed: version.value },
+        },
+      ],
+    }),
+  ];
 }
 
 /**
@@ -262,7 +318,36 @@ export function generateFindings(context: AuditContext): Finding[] {
   const pluginEnrichment = context.getEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT) as
     Record<string, WordPressOrgPluginInfo | undefined> | undefined;
   if (pluginData && pluginEnrichment) {
-    findings.push(...deriveOutdatedPluginFindings(pluginData.plugins, pluginEnrichment));
+    findings.push(
+      ...deriveOutdatedComponentFindings(
+        pluginData.plugins,
+        pluginEnrichment,
+        'finding.plugin.outdated',
+      ),
+    );
+  }
+
+  const themeData = dataFrom<{ themes: DetectedTheme[] }>(results, 'theme-scanner');
+  const themeEnrichment = context.getEnrichment(WORDPRESS_ORG_THEME_ENRICHMENT) as
+    Record<string, WordPressOrgThemeInfo | undefined> | undefined;
+  if (themeData && themeEnrichment) {
+    findings.push(
+      ...deriveOutdatedComponentFindings(
+        themeData.themes,
+        themeEnrichment,
+        'finding.theme.outdated',
+      ),
+    );
+  }
+
+  const coreVersion = dataFrom<{ version: VersionInfo | undefined }>(
+    results,
+    'core-version-scanner',
+  )?.version;
+  const coreEnrichment = context.getEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT) as
+    CoreStableVersions | undefined;
+  if (coreVersion && coreEnrichment) {
+    findings.push(...deriveCoreVersionFindings(coreVersion, coreEnrichment));
   }
 
   return findings;

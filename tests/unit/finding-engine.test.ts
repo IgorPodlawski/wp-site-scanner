@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { generateFindings } from '@analysis/finding-engine.js';
+import {
+  generateFindings,
+  WORDPRESS_ORG_PLUGIN_ENRICHMENT,
+  WORDPRESS_ORG_THEME_ENRICHMENT,
+  WORDPRESS_ORG_CORE_ENRICHMENT,
+} from '@analysis/finding-engine.js';
 import { DefaultAuditContext } from '@core/types/audit-context.js';
 import { buildTarget } from '@core/types/target.js';
 import type { ScannerResult } from '@core/types/index.js';
@@ -292,5 +297,200 @@ describe('generateFindings', () => {
     });
 
     expect(generateFindings(context)).toEqual([]);
+  });
+
+  describe('outdated plugins', () => {
+    it('flags a plugin older than the wordpress.org latest', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT, {
+        akismet: { slug: 'akismet', version: '5.7', lastUpdated: '', activeInstalls: 1 },
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'maintenance',
+        confidence: 'corroborated',
+        recommendationKey: 'finding.plugin.outdated.recommendation',
+      });
+    });
+
+    it('flags nothing when the installed version already matches the latest', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.7', sources: ['plugin-readme'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT, {
+        akismet: { slug: 'akismet', version: '5.7', lastUpdated: '', activeInstalls: 1 },
+      });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('outdated themes', () => {
+    it('flags a theme older than the wordpress.org latest', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'theme-scanner',
+        status: 'ok',
+        data: {
+          themes: [
+            {
+              slug: 'twentytwentyfour',
+              version: { value: '1.0', sources: ['theme-stylesheet'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_THEME_ENRICHMENT, {
+        twentytwentyfour: {
+          slug: 'twentytwentyfour',
+          version: '1.5',
+          lastUpdated: '',
+          activeInstalls: 1,
+        },
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'maintenance',
+        recommendationKey: 'finding.theme.outdated.recommendation',
+      });
+    });
+
+    it('flags nothing when the theme is not known to wordpress.org', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'theme-scanner',
+        status: 'ok',
+        data: {
+          themes: [
+            {
+              slug: 'custom-theme',
+              version: { value: '1.0', sources: ['theme-stylesheet'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_THEME_ENRICHMENT, { 'custom-theme': undefined });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('core version status', () => {
+    it('flags an insecure core version as a critical-eligible security finding', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: {
+            value: '6.4',
+            sources: ['generator-meta', 'asset-query-string'],
+            confidence: 'confirmed',
+          },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, {
+        '6.4': 'insecure',
+        '7.0.2': 'latest',
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'security',
+        severity: 'critical',
+        confidence: 'confirmed',
+        recommendationKey: 'finding.core.insecure.recommendation',
+      });
+    });
+
+    it('flags an outdated (but not insecure) core version as a maintenance finding', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '7.0.1', sources: ['generator-meta'], confidence: 'corroborated' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, {
+        '7.0.1': 'outdated',
+        '7.0.2': 'latest',
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'maintenance',
+        severity: 'medium',
+        recommendationKey: 'finding.core.outdated.recommendation',
+      });
+    });
+
+    it('flags nothing when the installed version is the latest', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '7.0.2', sources: ['generator-meta'], confidence: 'corroborated' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, { '7.0.2': 'latest' });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+
+    it('flags nothing when the installed version is absent from the stable-check map', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '99.0', sources: ['generator-meta'], confidence: 'corroborated' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, { '7.0.2': 'latest' });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
   });
 });

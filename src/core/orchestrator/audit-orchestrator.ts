@@ -20,10 +20,13 @@ import { saveAuditResult } from '../../storage/json-store.js';
 import {
   generateFindings,
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
+  WORDPRESS_ORG_THEME_ENRICHMENT,
+  WORDPRESS_ORG_CORE_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
-import type { WordPressOrgPluginInfo } from '../../integrations/enrichment-types.js';
+import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
+import type { DetectedTheme } from '../../scanners/theme-scanner.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
 
@@ -115,8 +118,12 @@ export class AuditOrchestrator {
 
     const isWordPress = context.isWordPress() ?? false;
     if (isWordPress) {
-      const enrichmentLimitation = await this.enrichPlugins(context);
-      if (enrichmentLimitation) limitations.push(enrichmentLimitation);
+      const enrichmentLimitations = await Promise.all([
+        this.enrichPlugins(context),
+        this.enrichThemes(context),
+        this.enrichCore(context),
+      ]);
+      limitations.push(...enrichmentLimitations.filter((l): l is string => l !== undefined));
     }
 
     const findings: Finding[] = isWordPress
@@ -191,45 +198,90 @@ export class AuditOrchestrator {
     return limitations;
   }
 
+  private getScannerData<T>(context: AuditContext, scannerName: string): T | undefined {
+    const result = context
+      .getScannerResults()
+      .find((r) => r.scannerName === scannerName && r.status === 'ok');
+    return result?.data as T | undefined;
+  }
+
   /**
    * WordPress.org lookups are prospect-safe third-party enrichment (per
-   * CLAUDE.md's "what each mode may touch"), so this runs regardless of
-   * authorization mode whenever plugins were detected. A lookup failure
-   * (network/API trouble) degrades the run to 'partial'; a plugin simply
-   * not being on wordpress.org (closed/premium/custom) is a normal outcome
-   * and is not a limitation.
+   * CLAUDE.md's "what each mode may touch"), so these run regardless of
+   * authorization mode. A lookup failure (network/API trouble) degrades the
+   * run to 'partial'; a slug simply not being on wordpress.org
+   * (closed/premium/custom) is a normal outcome and is not a limitation.
    */
   private async enrichPlugins(context: AuditContext): Promise<string | undefined> {
-    const pluginResult = context
-      .getScannerResults()
-      .find((r) => r.scannerName === 'plugin-scanner' && r.status === 'ok');
-    const plugins = (pluginResult?.data as { plugins: DetectedPlugin[] } | undefined)?.plugins;
-    if (!plugins || plugins.length === 0) return undefined;
+    const plugins = this.getScannerData<{ plugins: DetectedPlugin[] }>(
+      context,
+      'plugin-scanner',
+    )?.plugins;
+    if (!plugins) return undefined;
+
+    return this.enrichBySlug(
+      context,
+      plugins,
+      (slug) => this.wordPressOrgClient.getPluginInfo(slug),
+      WORDPRESS_ORG_PLUGIN_ENRICHMENT,
+      'wordpress-org plugin',
+    );
+  }
+
+  private async enrichThemes(context: AuditContext): Promise<string | undefined> {
+    const themes = this.getScannerData<{ themes: DetectedTheme[] }>(
+      context,
+      'theme-scanner',
+    )?.themes;
+    if (!themes) return undefined;
+
+    return this.enrichBySlug(
+      context,
+      themes,
+      (slug) => this.wordPressOrgClient.getThemeInfo(slug),
+      WORDPRESS_ORG_THEME_ENRICHMENT,
+      'wordpress-org theme',
+    );
+  }
+
+  /** The core version -> status map is a single global lookup, cached regardless of what was detected locally. */
+  private async enrichCore(context: AuditContext): Promise<string | undefined> {
+    const result = await this.wordPressOrgClient.getCoreStableVersions();
+    if (!result.ok) {
+      this.logger.warn({ error: result.error.message }, 'wordpress-org core lookup failed');
+      return 'wordpress-org core version lookup failed';
+    }
+    context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, result.value);
+    return undefined;
+  }
+
+  private async enrichBySlug<T>(
+    context: AuditContext,
+    items: ReadonlyArray<{ slug: string }>,
+    lookup: (slug: string) => Promise<Result<T | undefined, Error>>,
+    enrichmentKey: string,
+    label: string,
+  ): Promise<string | undefined> {
+    if (items.length === 0) return undefined;
 
     const lookups = await Promise.all(
-      plugins.map(async (plugin) => ({
-        slug: plugin.slug,
-        result: await this.wordPressOrgClient.getPluginInfo(plugin.slug),
-      })),
+      items.map(async (item) => ({ slug: item.slug, result: await lookup(item.slug) })),
     );
 
-    const enrichment: Record<string, WordPressOrgPluginInfo | undefined> = {};
+    const enrichment: Record<string, T | undefined> = {};
     let failureCount = 0;
     for (const { slug, result } of lookups) {
       if (result.ok) {
         enrichment[slug] = result.value;
       } else {
         failureCount += 1;
-        this.logger.warn(
-          { slug, error: result.error.message },
-          'WordPress.org plugin lookup failed',
-        );
+        this.logger.warn({ slug, error: result.error.message }, `${label} lookup failed`);
       }
     }
 
-    context.setEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT, enrichment);
+    context.setEnrichment(enrichmentKey, enrichment);
     return failureCount > 0
-      ? `wordpress-org plugin lookup failed for ${failureCount} of ${plugins.length} plugin(s)`
+      ? `${label} lookup failed for ${failureCount} of ${items.length} item(s)`
       : undefined;
   }
 
