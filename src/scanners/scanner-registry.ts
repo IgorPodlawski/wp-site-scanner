@@ -31,7 +31,7 @@ export function createScanners(config: AppConfig): Scanner[] {
     new WordPressDetector(),
     new CoreVersionScanner(),
     new PluginScanner(httpClientOptions, new UndiciHttpClient()),
-    new ThemeScanner(),
+    new ThemeScanner(httpClientOptions, new UndiciHttpClient()),
     new EndpointScanner(),
     new HeaderScanner(),
     new TlsScanner(),
