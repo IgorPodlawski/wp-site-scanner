@@ -17,7 +17,13 @@ import { DefaultAuditContext } from '../types/audit-context.js';
 import { createFinding } from '../types/finding.js';
 import { AuditFailureError, MissingConsentError } from '../errors.js';
 import { saveAuditResult } from '../../storage/json-store.js';
-import { generateFindings } from '../../analysis/finding-engine.js';
+import {
+  generateFindings,
+  WORDPRESS_ORG_PLUGIN_ENRICHMENT,
+} from '../../analysis/finding-engine.js';
+import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
+import type { WordPressOrgPluginInfo } from '../../integrations/enrichment-types.js';
+import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
 
@@ -83,6 +89,7 @@ export class AuditOrchestrator {
     private readonly scanners: readonly Scanner[],
     private readonly config: AppConfig,
     private readonly logger: Logger,
+    private readonly wordPressOrgClient: WordPressOrgClient,
   ) {}
 
   filterScanners(mode: AuthorizationMode): Scanner[] {
@@ -107,6 +114,11 @@ export class AuditOrchestrator {
     const limitations = await this.runScanners(scanners, context);
 
     const isWordPress = context.isWordPress() ?? false;
+    if (isWordPress) {
+      const enrichmentLimitation = await this.enrichPlugins(context);
+      if (enrichmentLimitation) limitations.push(enrichmentLimitation);
+    }
+
     const findings: Finding[] = isWordPress
       ? generateFindings(context)
       : [this.buildNotWordPressFinding(target)];
@@ -177,6 +189,48 @@ export class AuditOrchestrator {
     }
 
     return limitations;
+  }
+
+  /**
+   * WordPress.org lookups are prospect-safe third-party enrichment (per
+   * CLAUDE.md's "what each mode may touch"), so this runs regardless of
+   * authorization mode whenever plugins were detected. A lookup failure
+   * (network/API trouble) degrades the run to 'partial'; a plugin simply
+   * not being on wordpress.org (closed/premium/custom) is a normal outcome
+   * and is not a limitation.
+   */
+  private async enrichPlugins(context: AuditContext): Promise<string | undefined> {
+    const pluginResult = context
+      .getScannerResults()
+      .find((r) => r.scannerName === 'plugin-scanner' && r.status === 'ok');
+    const plugins = (pluginResult?.data as { plugins: DetectedPlugin[] } | undefined)?.plugins;
+    if (!plugins || plugins.length === 0) return undefined;
+
+    const lookups = await Promise.all(
+      plugins.map(async (plugin) => ({
+        slug: plugin.slug,
+        result: await this.wordPressOrgClient.getPluginInfo(plugin.slug),
+      })),
+    );
+
+    const enrichment: Record<string, WordPressOrgPluginInfo | undefined> = {};
+    let failureCount = 0;
+    for (const { slug, result } of lookups) {
+      if (result.ok) {
+        enrichment[slug] = result.value;
+      } else {
+        failureCount += 1;
+        this.logger.warn(
+          { slug, error: result.error.message },
+          'WordPress.org plugin lookup failed',
+        );
+      }
+    }
+
+    context.setEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT, enrichment);
+    return failureCount > 0
+      ? `wordpress-org plugin lookup failed for ${failureCount} of ${plugins.length} plugin(s)`
+      : undefined;
   }
 
   private buildNotWordPressFinding(target: Target): Finding {

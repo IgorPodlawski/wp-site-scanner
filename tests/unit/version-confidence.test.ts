@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { deriveConfidence, deriveVersionInfo } from '@analysis/version-confidence.js';
+import {
+  compareVersions,
+  deriveConfidence,
+  deriveVersionInfo,
+} from '@analysis/version-confidence.js';
 
 describe('deriveConfidence', () => {
   it('caps a lone asset-query-string source at inferred (cache-busters lie)', () => {
@@ -59,5 +63,26 @@ describe('deriveVersionInfo', () => {
       sources: ['asset-query-string'],
       confidence: 'inferred',
     });
+  });
+});
+
+describe('compareVersions', () => {
+  it('detects an older version regardless of segment count', () => {
+    expect(compareVersions('5.3', '5.3.3')).toBe(-1);
+    expect(compareVersions('5.2.9', '5.3.0')).toBe(-1);
+  });
+
+  it('detects a newer version', () => {
+    expect(compareVersions('6.0.0', '5.9.9')).toBe(1);
+  });
+
+  it('treats equal versions as equal', () => {
+    expect(compareVersions('5.3.3', '5.3.3')).toBe(0);
+    expect(compareVersions('5.3', '5.3.0')).toBe(0);
+  });
+
+  it('abstains (undefined) when either version has a non-numeric segment', () => {
+    expect(compareVersions('5.3-beta', '5.3.3')).toBeUndefined();
+    expect(compareVersions('5.3.3', '5.x')).toBeUndefined();
   });
 });

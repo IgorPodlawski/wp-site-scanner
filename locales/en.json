@@ -37,6 +37,9 @@
   "finding.endpoint.configBackupExposed.evidence": "A configuration backup file is publicly downloadable: {{paths}}.",
   "finding.endpoint.configBackupExposed.recommendation": "Remove exposed wp-config.php backup files immediately — they can leak database credentials and secret keys.",
 
+  "finding.plugin.outdated.evidence": "The {{slug}} plugin is at version {{installed}}, but {{latest}} is the latest version on WordPress.org.",
+  "finding.plugin.outdated.recommendation": "Update the {{slug}} plugin to the latest version to receive bug fixes and security patches.",
+
   "score.category.security": "Security",
   "score.category.maintenance": "Maintenance",
   "score.category.performance": "Performance",

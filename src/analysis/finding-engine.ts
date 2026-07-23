@@ -4,6 +4,12 @@ import { createFinding } from '../core/types/finding.js';
 import type { HeaderScannerData, SecurityHeaderName } from '../scanners/header-scanner.js';
 import type { TlsProbeResult } from '../core/http/tls-probe.js';
 import type { EndpointScannerData } from '../scanners/endpoint-scanner.js';
+import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
+import type { WordPressOrgPluginInfo } from '../integrations/enrichment-types.js';
+import { compareVersions } from './version-confidence.js';
+
+/** The context.setEnrichment() key AuditOrchestrator.enrichPlugins() writes to and this module reads from. */
+export const WORDPRESS_ORG_PLUGIN_ENRICHMENT = 'wordpress-org-plugins';
 
 function dataFrom<T>(results: readonly ScannerResult[], scannerName: string): T | undefined {
   const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
@@ -190,13 +196,54 @@ function deriveEndpointFindings(data: EndpointScannerData): Finding[] {
 }
 
 /**
+ * Flags a detected plugin as outdated when its version is strictly older
+ * than wordpress.org's latest — only for plugins wordpress.org actually
+ * knows about (enrichment[slug] undefined means "not found there", not
+ * "up to date") and only when compareVersions can actually compare the two
+ * (it abstains rather than guess on a non-numeric segment). Confidence
+ * carries over from the detected version itself — WP.org's "latest" figure
+ * is treated as ground truth, so the weak link is how sure we are about
+ * what's actually installed, and confidence-caps-severity bounds it from there.
+ */
+function deriveOutdatedPluginFindings(
+  plugins: readonly DetectedPlugin[],
+  enrichment: Record<string, WordPressOrgPluginInfo | undefined>,
+): Finding[] {
+  const findings: Finding[] = [];
+
+  for (const plugin of plugins) {
+    const latest = enrichment[plugin.slug];
+    if (!plugin.version || !latest) continue;
+
+    const comparison = compareVersions(plugin.version.value, latest.version);
+    if (comparison !== -1) continue;
+
+    findings.push(
+      createFinding({
+        id: randomUUID(),
+        category: 'maintenance',
+        confidence: plugin.version.confidence,
+        requestedSeverity: 'medium',
+        sourceLayer: 1,
+        businessImpact: 'medium',
+        recommendationKey: 'finding.plugin.outdated.recommendation',
+        evidence: [
+          {
+            descriptionKey: 'finding.plugin.outdated.evidence',
+            params: { slug: plugin.slug, installed: plugin.version.value, latest: latest.version },
+          },
+        ],
+      }),
+    );
+  }
+
+  return findings;
+}
+
+/**
  * Interprets raw scanner observations into Findings. Never emit raw scanner
  * output directly — every Finding goes through core/types/finding.ts's
  * createFinding(), which mechanically enforces confidence-caps-severity.
- * Only covers the observations that need no external enrichment (headers,
- * TLS, audit-only endpoints) — outdated-component findings need the
- * WordPress.org "latest version" comparison, which is separate enrichment
- * work not wired in yet.
  */
 export function generateFindings(context: AuditContext): Finding[] {
   const results = context.getScannerResults();
@@ -210,6 +257,13 @@ export function generateFindings(context: AuditContext): Finding[] {
 
   const endpointData = dataFrom<EndpointScannerData>(results, 'endpoint-scanner');
   if (endpointData) findings.push(...deriveEndpointFindings(endpointData));
+
+  const pluginData = dataFrom<{ plugins: DetectedPlugin[] }>(results, 'plugin-scanner');
+  const pluginEnrichment = context.getEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT) as
+    Record<string, WordPressOrgPluginInfo | undefined> | undefined;
+  if (pluginData && pluginEnrichment) {
+    findings.push(...deriveOutdatedPluginFindings(pluginData.plugins, pluginEnrichment));
+  }
 
   return findings;
 }

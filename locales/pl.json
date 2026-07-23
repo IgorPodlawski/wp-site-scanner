@@ -37,6 +37,9 @@
   "finding.endpoint.configBackupExposed.evidence": "Plik zapasowy konfiguracji jest publicznie dostępny do pobrania: {{paths}}.",
   "finding.endpoint.configBackupExposed.recommendation": "Natychmiast usuń ujawnione pliki zapasowe wp-config.php — mogą ujawnić dane dostępowe do bazy danych i tajne klucze.",
 
+  "finding.plugin.outdated.evidence": "Wtyczka {{slug}} jest w wersji {{installed}}, a najnowsza wersja na WordPress.org to {{latest}}.",
+  "finding.plugin.outdated.recommendation": "Zaktualizuj wtyczkę {{slug}} do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
+
   "score.category.security": "Bezpieczeństwo",
   "score.category.maintenance": "Utrzymanie",
   "score.category.performance": "Wydajność",

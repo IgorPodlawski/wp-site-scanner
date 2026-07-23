@@ -6,6 +6,8 @@ import { SsrfRejectedError } from '@core/errors.js';
 import type { AppConfig } from '@config/types.js';
 import type { Logger } from '@utils/logger.js';
 import { saveAuditResult } from '@storage/json-store.js';
+import type { WordPressOrgClient } from '@integrations/wordpress-org-client.js';
+import { ok, err } from '@utils/result.js';
 
 vi.mock('@storage/json-store.js', () => ({ saveAuditResult: vi.fn(async () => '/tmp/fake.json') }));
 
@@ -24,6 +26,10 @@ const TEST_CONFIG: AppConfig = {
 };
 
 const FAKE_LOGGER = { info: () => {}, warn: () => {}, error: () => {} } as unknown as Logger;
+
+const NO_OP_WORDPRESS_ORG_CLIENT = {
+  getPluginInfo: async () => ok(undefined),
+} as unknown as WordPressOrgClient;
 
 const PROSPECT_REQUEST: AuditRequest = {
   targetInput: 'https://example.com',
@@ -55,7 +61,12 @@ describe('AuditOrchestrator.run', () => {
       },
     });
     const other = fakeScanner('core-version-scanner');
-    const orchestrator = new AuditOrchestrator([detector, other], TEST_CONFIG, FAKE_LOGGER);
+    const orchestrator = new AuditOrchestrator(
+      [detector, other],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+    );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
 
@@ -81,7 +92,12 @@ describe('AuditOrchestrator.run', () => {
         throw new Error('should never run once WordPress is ruled out');
       },
     });
-    const orchestrator = new AuditOrchestrator([detector, neverRun], TEST_CONFIG, FAKE_LOGGER);
+    const orchestrator = new AuditOrchestrator(
+      [detector, neverRun],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+    );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
 
@@ -113,6 +129,7 @@ describe('AuditOrchestrator.run', () => {
       [detector, failing, after],
       TEST_CONFIG,
       FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -133,7 +150,12 @@ describe('AuditOrchestrator.run', () => {
         throw new SsrfRejectedError('https://example.com/', 'blocked by SSRF guard');
       },
     });
-    const orchestrator = new AuditOrchestrator([failing], TEST_CONFIG, FAKE_LOGGER);
+    const orchestrator = new AuditOrchestrator(
+      [failing],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+    );
 
     await expect(orchestrator.run(PROSPECT_REQUEST)).rejects.toThrow(SsrfRejectedError);
   });
@@ -145,7 +167,12 @@ describe('AuditOrchestrator.run', () => {
         return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
       },
     });
-    const orchestrator = new AuditOrchestrator([detector], TEST_CONFIG, FAKE_LOGGER);
+    const orchestrator = new AuditOrchestrator(
+      [detector],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+    );
 
     const result = await orchestrator.run({
       ...PROSPECT_REQUEST,
@@ -158,5 +185,82 @@ describe('AuditOrchestrator.run', () => {
       confirmed: true,
       source: 'cli-flag',
     });
+  });
+
+  it('enriches detected plugins via WordPress.org and emits an outdated-plugin finding', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pluginScanner = fakeScanner('plugin-scanner', {
+      run: async () => ({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      }),
+    });
+    const wordPressOrgClient = {
+      getPluginInfo: async (slug: string) =>
+        slug === 'akismet'
+          ? ok({ slug: 'akismet', version: '5.7', lastUpdated: '', activeInstalls: 1 })
+          : ok(undefined),
+    } as unknown as WordPressOrgClient;
+    const orchestrator = new AuditOrchestrator(
+      [detector, pluginScanner],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      wordPressOrgClient,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('completed');
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      category: 'maintenance',
+      confidence: 'corroborated',
+      recommendationKey: 'finding.plugin.outdated.recommendation',
+    });
+  });
+
+  it('downgrades to partial when a WordPress.org lookup fails, without treating it as "not found"', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const pluginScanner = fakeScanner('plugin-scanner', {
+      run: async () => ({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: { plugins: [{ slug: 'akismet' }] },
+        durationMs: 0,
+      }),
+    });
+    const wordPressOrgClient = {
+      getPluginInfo: async () => err(new Error('timeout')),
+    } as unknown as WordPressOrgClient;
+    const orchestrator = new AuditOrchestrator(
+      [detector, pluginScanner],
+      TEST_CONFIG,
+      FAKE_LOGGER,
+      wordPressOrgClient,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('partial');
+    expect(result.limitations).toEqual(['wordpress-org plugin lookup failed for 1 of 1 plugin(s)']);
   });
 });
