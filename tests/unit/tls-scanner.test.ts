@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { TlsScanner } from '@scanners/tls-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import { SsrfRejectedError } from '@core/errors.js';
 import type { TlsProbe, TlsProbeOptions, TlsProbeResult } from '@core/http/tls-probe.js';
+import { buildTestContext } from '../support/test-context.js';
 
 function createContext(targetInput: string): DefaultAuditContext {
-  return new DefaultAuditContext({
-    target: buildTarget(targetInput),
-    authorizationMode: 'prospect',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
+  return buildTestContext({ target: targetInput });
 }
 
 const VALID_RESULT: TlsProbeResult = {

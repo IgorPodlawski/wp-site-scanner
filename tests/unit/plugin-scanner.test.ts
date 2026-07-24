@@ -1,30 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { PluginScanner } from '@scanners/plugin-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
 import type { AuthorizationMode, IntensityProfile } from '@core/types/authorization.js';
-import type { HttpClient, HttpClientOptions, HttpResponse } from '@core/http/http-client.js';
-
-const OPTIONS: HttpClientOptions = {
-  timeoutMs: 1000,
-  maxRedirects: 5,
-  maxResponseBytes: 1_000_000,
-  userAgent: 'wp-audit-test/0.1',
-};
+import type { HttpClient } from '@core/http/http-client.js';
+import {
+  TEST_HTTP_OPTIONS as OPTIONS,
+  buildTestContext,
+  buildHttpResponse,
+} from '../support/test-context.js';
 
 function createContext(
   body: string,
   authorizationMode: AuthorizationMode = 'prospect',
   profile: IntensityProfile = 'standard',
 ) {
-  const context = new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode,
-    profile,
-    startedAt: new Date(0).toISOString(),
-  });
-  const response: HttpResponse = { url: 'https://example.com/', status: 200, headers: {}, body };
-  context.setHttpResponse(response);
+  const context = buildTestContext({ authorizationMode, profile });
+  context.setHttpResponse(buildHttpResponse(body));
   context.setDetectedWordPress(true);
   return context;
 }
@@ -136,6 +126,37 @@ describe('PluginScanner', () => {
         },
       ],
     });
+  });
+
+  it('ignores a cache-busting timestamp rewritten onto a plugin asset ?ver=', async () => {
+    // Real-world regression: the exact same failure mode fixed in
+    // CoreVersionScanner (a caching plugin rewriting ?ver= to a Unix
+    // timestamp) is equally reachable here — this asserts it stays fixed.
+    const context = createContext(
+      '<script src="/wp-content/plugins/akismet/akismet.js?ver=1774442679"></script>',
+    );
+    const scanner = new PluginScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({ plugins: [{ slug: 'akismet' }] });
+  });
+
+  it('ignores a content hash rewritten onto a readme.txt Stable tag line', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        return { url: '', status: 200, headers: {}, body: 'Stable tag: 85d537c6\n' };
+      },
+    };
+    const context = createContext(
+      '<script src="/wp-content/plugins/akismet/akismet.js"></script>',
+      'audit',
+    );
+    const scanner = new PluginScanner(OPTIONS, httpClient);
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({ plugins: [{ slug: 'akismet' }] });
   });
 
   describe('--profile deep asset scanning', () => {

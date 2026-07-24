@@ -1,16 +1,10 @@
 import type { AuditContext, Scanner, ScannerResult } from '../core/types/index.js';
 import type { HttpResponse } from '../core/http/http-client.js';
 import type { VersionInfo, VersionSource } from '../core/types/version.js';
-import { deriveConfidence } from '../analysis/version-confidence.js';
-
-// A real WordPress version is always at least major.minor ("6.4", "5.9.3") —
-// requiring the dot rejects the two garbage shapes seen live: a bare cache-busting
-// timestamp (no dot at all: `?ver=1774442679`) and a content hash (`?ver=85d537c6`,
-// which under a digits-only pattern partial-matches as the bogus version "85").
-const VERSION_SHAPE = /\d+\.\d+(?:\.\d+)?/;
+import { deriveConfidence, WP_VERSION_SHAPE } from '../analysis/version-confidence.js';
 
 const GENERATOR_PATTERN = new RegExp(
-  `<meta[^>]+name=["']generator["'][^>]*wordpress\\s+(${VERSION_SHAPE.source})`,
+  `<meta[^>]+name=["']generator["'][^>]*wordpress\\s+(${WP_VERSION_SHAPE})`,
   'i',
 );
 
@@ -27,7 +21,7 @@ const GENERATOR_PATTERN = new RegExp(
 // `?ver=` of these exact files to its own cache-busting value — the
 // VERSION_SHAPE requirement is what catches that, not the allowlist alone.
 const CORE_ASSET_QUERY_PATTERN = new RegExp(
-  `/wp-includes/(?:js/wp-emoji-release\\.min\\.js|js/wp-embed\\.min\\.js|css/dashicons\\.min\\.css)\\?ver=(${VERSION_SHAPE.source})`,
+  `/wp-includes/(?:js/wp-emoji-release\\.min\\.js|js/wp-embed\\.min\\.js|css/dashicons\\.min\\.css)\\?ver=(${WP_VERSION_SHAPE})`,
   'i',
 );
 

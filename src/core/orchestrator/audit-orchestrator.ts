@@ -15,6 +15,7 @@ import type { Logger } from '../../utils/logger.js';
 import { buildTarget } from '../types/target.js';
 import type { HttpResponse } from '../http/http-client.js';
 import { DefaultAuditContext } from '../types/audit-context.js';
+import { getScannerData } from '../types/scanner.js';
 import { createFinding } from '../types/finding.js';
 import { AuditFailureError, MissingConsentError } from '../errors.js';
 import { saveAuditResult } from '../../storage/json-store.js';
@@ -220,10 +221,7 @@ export class AuditOrchestrator {
   }
 
   private getScannerData<T>(context: AuditContext, scannerName: string): T | undefined {
-    const result = context
-      .getScannerResults()
-      .find((r) => r.scannerName === scannerName && r.status === 'ok');
-    return result?.data as T | undefined;
+    return getScannerData<T>(context.getScannerResults(), scannerName);
   }
 
   /**

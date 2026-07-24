@@ -9,6 +9,7 @@ import type {
   ScoreSummary,
   VersionInfo,
 } from '../core/types/index.js';
+import { getScannerData } from '../core/types/scanner.js';
 import type { Locale, LocaleMessages } from '../i18n/types.js';
 import { loadLocale } from '../i18n/loader.js';
 import { interpolate } from '../i18n/translate.js';
@@ -49,14 +50,19 @@ function text(t: Translate, key: string, params?: Record<string, string | number
  * value reads as exactly that, not as an unqualified fact.
  */
 function renderCoreVersionValue(result: AuditResult, t: Translate): string {
-  const version = findScannerData<{ version: VersionInfo | undefined }>(
-    result,
+  const version = getScannerData<{ version: VersionInfo | undefined }>(
+    result.scannerResults,
     'core-version-scanner',
   )?.version;
   if (!version) {
     return text(t, 'report.summary.coreVersionUnknown');
   }
   return `${escapeHtml(version.value)} (${text(t, `report.confidence.${version.confidence}`)})`;
+}
+
+function renderTable(rows: ReadonlyArray<[string, string]>): string {
+  const rowsHtml = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
+  return `<table>${rowsHtml}</table>`;
 }
 
 function renderSummarySection(result: AuditResult, t: Translate): string {
@@ -78,23 +84,20 @@ function renderSummarySection(result: AuditResult, t: Translate): string {
     [text(t, 'report.summary.finishedAt'), escapeHtml(result.finishedAt)],
   ];
 
-  const rowsHtml = rows
-    .map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`)
-    .join('');
-  return `<h2>${text(t, 'report.summary.title')}</h2><table>${rowsHtml}</table>`;
+  return `<h2>${text(t, 'report.summary.title')}</h2>${renderTable(rows)}`;
 }
 
 function renderScoresSection(scores: ScoreSummary | undefined, t: Translate): string {
   if (!scores) return '';
 
-  const rows = [
+  const rows: Array<[string, string]> = [
     ...scores.categories.map(
-      (c) => `<tr><th>${text(t, `score.category.${c.category}`)}</th><td>${c.value}</td></tr>`,
+      (c): [string, string] => [text(t, `score.category.${c.category}`), String(c.value)],
     ),
-    `<tr><th>${text(t, 'score.category.overall')}</th><td>${scores.overall}</td></tr>`,
-  ].join('');
+    [text(t, 'score.category.overall'), String(scores.overall)],
+  ];
 
-  return `<h2>${text(t, 'report.section.scores')}</h2><table>${rows}</table>`;
+  return `<h2>${text(t, 'report.section.scores')}</h2>${renderTable(rows)}`;
 }
 
 function renderInsightsSection(insights: readonly Insight[], t: Translate): string {
@@ -135,18 +138,16 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
   return `<h2>${text(t, 'report.section.findings')}</h2>${cards}`;
 }
 
-function findScannerData<T>(result: AuditResult, scannerName: string): T | undefined {
-  const scanner = result.scannerResults.find((r) => r.scannerName === scannerName && r.status === 'ok');
-  return scanner?.data as T | undefined;
-}
-
 function renderComponentLine(t: Translate, slug: string, version: string | undefined): string {
   const versionLabel = version ?? t('report.component.versionUnknown');
   return `<li>${text(t, 'report.component.entry', { slug, version: versionLabel })}</li>`;
 }
 
 function renderPluginsSection(result: AuditResult, t: Translate): string {
-  const plugins = findScannerData<{ plugins: DetectedPlugin[] }>(result, 'plugin-scanner')?.plugins;
+  const plugins = getScannerData<{ plugins: DetectedPlugin[] }>(
+    result.scannerResults,
+    'plugin-scanner',
+  )?.plugins;
   if (!plugins || plugins.length === 0) {
     return `<h2>${text(t, 'report.section.plugins')}</h2><p class="empty-state">${text(t, 'report.plugins.empty')}</p>`;
   }
@@ -156,7 +157,10 @@ function renderPluginsSection(result: AuditResult, t: Translate): string {
 }
 
 function renderThemeSection(result: AuditResult, t: Translate): string {
-  const themes = findScannerData<{ themes: DetectedTheme[] }>(result, 'theme-scanner')?.themes;
+  const themes = getScannerData<{ themes: DetectedTheme[] }>(
+    result.scannerResults,
+    'theme-scanner',
+  )?.themes;
   if (!themes || themes.length === 0) {
     return `<h2>${text(t, 'report.section.theme')}</h2><p class="empty-state">${text(t, 'report.theme.empty')}</p>`;
   }
@@ -181,9 +185,7 @@ function renderConsentSection(result: AuditResult, t: Translate): string {
     [text(t, 'report.consent.timestamp'), escapeHtml(consent.timestamp)],
     ...(consent.operatorNote ? [[text(t, 'report.consent.note'), escapeHtml(consent.operatorNote)] as [string, string]] : []),
   ];
-  const rowsHtml = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
-
-  return `<h2>${text(t, 'report.consent.title')}</h2><table>${rowsHtml}</table>`;
+  return `<h2>${text(t, 'report.consent.title')}</h2>${renderTable(rows)}`;
 }
 
 function renderDisclaimer(result: AuditResult, t: Translate): string {

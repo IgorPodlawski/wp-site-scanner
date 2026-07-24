@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { HttpClient, HttpClientOptions } from '../core/http/http-client.js';
 import type { CacheStore } from '../storage/cache-store.js';
 import { buildCacheKey } from '../storage/cache-key.js';
-import { ok, err, type Result } from '../utils/result.js';
+import { ok, type Result } from '../utils/result.js';
+import { withRetry } from '../utils/retry.js';
+import { withCache } from '../utils/cache-helper.js';
 import type { AppConfig } from '../config/types.js';
 import type { PageSpeedResult } from './enrichment-types.js';
 
@@ -86,32 +88,9 @@ export class PageSpeedClient {
     }
 
     const cacheKey = buildCacheKey('pagespeed', 'mobile-performance', url, 'latest');
-    const cached = await this.cache.get<{ value: PageSpeedResult }>(cacheKey);
-    if (cached !== undefined) {
-      return ok(cached.value);
-    }
-
-    const result = await this.withRetry(() => this.fetchOnce(url, key));
-    if (result.ok) {
-      await this.cache.set(cacheKey, { value: result.value }, PageSpeedClient.CACHE_TTL_MS);
-    }
-    return result;
-  }
-
-  /** Retries at most once, per CLAUDE.md's "every external API must ... retry at most once". */
-  private async withRetry(
-    fetcher: () => Promise<PageSpeedResult>,
-  ): Promise<Result<PageSpeedResult, Error>> {
-    try {
-      return ok(await fetcher());
-    } catch {
-      // one retry
-    }
-    try {
-      return ok(await fetcher());
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
+    return withCache(this.cache, cacheKey, PageSpeedClient.CACHE_TTL_MS, () =>
+      withRetry(() => this.fetchOnce(url, key)),
+    );
   }
 
   private async fetchOnce(url: string, key: string): Promise<PageSpeedResult> {

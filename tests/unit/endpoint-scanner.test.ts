@@ -1,30 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { EndpointScanner } from '@scanners/endpoint-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
-import type { HttpClient, HttpClientOptions, HttpResponse } from '@core/http/http-client.js';
-
-const OPTIONS: HttpClientOptions = {
-  timeoutMs: 1000,
-  maxRedirects: 5,
-  maxResponseBytes: 1_000_000,
-  userAgent: 'wp-audit-test/0.1',
-};
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
+import type { HttpClient, HttpResponse } from '@core/http/http-client.js';
+import {
+  TEST_HTTP_OPTIONS as OPTIONS,
+  buildTestContext,
+  buildHttpResponse,
+} from '../support/test-context.js';
 
 function createContext(): DefaultAuditContext {
-  const context = new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'audit',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
-  const response: HttpResponse = {
-    url: 'https://example.com/',
-    status: 200,
-    headers: {},
-    body: '<html></html>',
-  };
-  context.setHttpResponse(response);
+  const context = buildTestContext({ authorizationMode: 'audit' });
+  context.setHttpResponse(buildHttpResponse('<html></html>'));
   context.setDetectedWordPress(true);
   return context;
 }

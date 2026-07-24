@@ -1,6 +1,16 @@
 import type { VersionConfidence, VersionInfo, VersionSource } from '../core/types/version.js';
 
 /**
+ * A real WordPress version (core, plugin, or theme) is always at least
+ * major.minor ("6.4", "5.9.3") — requiring the dot rejects the two garbage
+ * shapes seen live: a bare cache-busting timestamp (no dot at all, e.g.
+ * `?ver=1774442679`) and a content hash (`?ver=85d537c6`, which a
+ * digits-only pattern used to partial-match as the bogus version `"85"`).
+ * Shared so every version-extracting scanner enforces the same shape.
+ */
+export const WP_VERSION_SHAPE = String.raw`\d+\.\d+(?:\.\d+)?`;
+
+/**
  * Real, pure implementation of the version-confidence rules from CLAUDE.md:
  * `?ver=` on an asset is inferred at best (cache-busters lie); any other
  * single source reaches at most 'corroborated'; 'confirmed' requires two

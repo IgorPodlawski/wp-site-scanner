@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { HttpClient, HttpClientOptions } from '../core/http/http-client.js';
 import type { CacheStore } from '../storage/cache-store.js';
 import { buildCacheKey } from '../storage/cache-key.js';
-import { ok, err, type Result } from '../utils/result.js';
+import { ok, type Result } from '../utils/result.js';
+import { withRetry } from '../utils/retry.js';
+import { withCache } from '../utils/cache-helper.js';
 import type { AppConfig } from '../config/types.js';
 import type { WpscanVulnerability } from './enrichment-types.js';
 
@@ -87,31 +89,9 @@ export class WpscanClient {
     }
 
     const cacheKey = buildCacheKey('wpscan', kind, slug, 'latest');
-    const cached = await this.cache.get<{ value: WpscanVulnerability[] }>(cacheKey);
-    if (cached !== undefined) {
-      return ok(cached.value);
-    }
-
-    const result = await this.withRetry(() => this.fetchOnce(kind, slug, token));
-    if (result.ok) {
-      await this.cache.set(cacheKey, { value: result.value }, WpscanClient.CACHE_TTL_MS);
-    }
-    return result;
-  }
-
-  private async withRetry(
-    fetcher: () => Promise<WpscanVulnerability[]>,
-  ): Promise<Result<WpscanVulnerability[], Error>> {
-    try {
-      return ok(await fetcher());
-    } catch {
-      // one retry, per CLAUDE.md's "retry at most once"
-    }
-    try {
-      return ok(await fetcher());
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
+    return withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
+      withRetry(() => this.fetchOnce(kind, slug, token)),
+    );
   }
 
   private async fetchOnce(

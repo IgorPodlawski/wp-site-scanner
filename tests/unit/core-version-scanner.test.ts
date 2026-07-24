@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CoreVersionScanner } from '@scanners/core-version-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
-import type { HttpResponse } from '@core/http/http-client.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
+import { buildTestContext, buildHttpResponse } from '../support/test-context.js';
 
 function createContext(body: string): DefaultAuditContext {
-  const context = new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'prospect',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
-  const response: HttpResponse = { url: 'https://example.com/', status: 200, headers: {}, body };
-  context.setHttpResponse(response);
+  const context = buildTestContext();
+  context.setHttpResponse(buildHttpResponse(body));
   context.setDetectedWordPress(true);
   return context;
 }
@@ -165,12 +158,7 @@ describe('CoreVersionScanner', () => {
   });
 
   it('supports() is false until WordPress has been detected', () => {
-    const freshContext = new DefaultAuditContext({
-      target: buildTarget('https://example.com'),
-      authorizationMode: 'prospect',
-      profile: 'standard',
-      startedAt: new Date(0).toISOString(),
-    });
+    const freshContext = buildTestContext();
     const scanner = new CoreVersionScanner();
 
     expect(scanner.supports(freshContext)).toBe(false);

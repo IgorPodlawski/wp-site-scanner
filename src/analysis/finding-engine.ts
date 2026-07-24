@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { AuditContext, Finding, ScannerResult, VersionInfo } from '../core/types/index.js';
+import type { AuditContext, Finding, VersionInfo } from '../core/types/index.js';
 import { createFinding } from '../core/types/finding.js';
+import { getScannerData } from '../core/types/scanner.js';
 import type { HeaderScannerData, SecurityHeaderName } from '../scanners/header-scanner.js';
 import type { TlsProbeResult } from '../core/http/tls-probe.js';
 import type { EndpointScannerData } from '../scanners/endpoint-scanner.js';
@@ -22,11 +23,6 @@ export const WORDPRESS_ORG_CORE_ENRICHMENT = 'wordpress-org-core';
 export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
 export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
 export const PAGESPEED_ENRICHMENT = 'pagespeed';
-
-function dataFrom<T>(results: readonly ScannerResult[], scannerName: string): T | undefined {
-  const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
-  return result?.data as T | undefined;
-}
 
 const MISSING_HEADER_RULES: Array<{ header: SecurityHeaderName; key: string }> = [
   { header: 'strict-transport-security', key: 'finding.header.missingHsts' },
@@ -419,16 +415,16 @@ export function generateFindings(context: AuditContext): Finding[] {
   const results = context.getScannerResults();
   const findings: Finding[] = [];
 
-  const headerData = dataFrom<HeaderScannerData>(results, 'header-scanner');
+  const headerData = getScannerData<HeaderScannerData>(results, 'header-scanner');
   if (headerData) findings.push(...deriveHeaderFindings(headerData));
 
-  const tlsData = dataFrom<TlsProbeResult>(results, 'tls-scanner');
+  const tlsData = getScannerData<TlsProbeResult>(results, 'tls-scanner');
   if (tlsData) findings.push(...deriveTlsFindings(tlsData));
 
-  const endpointData = dataFrom<EndpointScannerData>(results, 'endpoint-scanner');
+  const endpointData = getScannerData<EndpointScannerData>(results, 'endpoint-scanner');
   if (endpointData) findings.push(...deriveEndpointFindings(endpointData));
 
-  const pluginData = dataFrom<{ plugins: DetectedPlugin[] }>(results, 'plugin-scanner');
+  const pluginData = getScannerData<{ plugins: DetectedPlugin[] }>(results, 'plugin-scanner');
   const pluginEnrichment = context.getEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT) as
     Record<string, WordPressOrgPluginInfo | undefined> | undefined;
   if (pluginData && pluginEnrichment) {
@@ -441,7 +437,7 @@ export function generateFindings(context: AuditContext): Finding[] {
     );
   }
 
-  const themeData = dataFrom<{ themes: DetectedTheme[] }>(results, 'theme-scanner');
+  const themeData = getScannerData<{ themes: DetectedTheme[] }>(results, 'theme-scanner');
   const themeEnrichment = context.getEnrichment(WORDPRESS_ORG_THEME_ENRICHMENT) as
     Record<string, WordPressOrgThemeInfo | undefined> | undefined;
   if (themeData && themeEnrichment) {
@@ -454,7 +450,7 @@ export function generateFindings(context: AuditContext): Finding[] {
     );
   }
 
-  const coreVersion = dataFrom<{ version: VersionInfo | undefined }>(
+  const coreVersion = getScannerData<{ version: VersionInfo | undefined }>(
     results,
     'core-version-scanner',
   )?.version;

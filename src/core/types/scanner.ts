@@ -12,6 +12,15 @@ export interface ScannerResult {
   durationMs: number;
 }
 
+/** Looks up a successful scanner's raw `data` by name — shared by the finding engine, report rendering, and the orchestrator's own enrichment lookups. */
+export function getScannerData<T>(
+  results: readonly ScannerResult[],
+  scannerName: string,
+): T | undefined {
+  const result = results.find((r) => r.scannerName === scannerName && r.status === 'ok');
+  return result?.data as T | undefined;
+}
+
 /**
  * One responsibility per scanner. Scanners never call each other — all
  * communication happens through AuditContext. A scanner produces raw

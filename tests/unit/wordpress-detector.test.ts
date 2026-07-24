@@ -1,22 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { WordPressDetector } from '@scanners/wordpress-detector.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import type { HttpResponse } from '@core/http/http-client.js';
+import { buildTestContext, buildHttpResponse } from '../support/test-context.js';
 
 function createContext(response: HttpResponse): DefaultAuditContext {
-  const context = new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'prospect',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
+  const context = buildTestContext();
   context.setHttpResponse(response);
   return context;
 }
 
 function htmlResponse(body: string): HttpResponse {
-  return { url: 'https://example.com/', status: 200, headers: {}, body };
+  return buildHttpResponse(body);
 }
 
 describe('WordPressDetector', () => {
@@ -59,12 +54,7 @@ describe('WordPressDetector', () => {
   });
 
   it('supports() is false until the HTTP response has been fetched', () => {
-    const context = new DefaultAuditContext({
-      target: buildTarget('https://example.com'),
-      authorizationMode: 'prospect',
-      profile: 'standard',
-      startedAt: new Date(0).toISOString(),
-    });
+    const context = buildTestContext();
     const scanner = new WordPressDetector();
 
     expect(scanner.supports(context)).toBe(false);

@@ -5,20 +5,15 @@ import {
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
 } from '@analysis/finding-engine.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import type { ScannerResult } from '@core/types/index.js';
 import type { HeaderScannerData } from '@scanners/header-scanner.js';
 import type { TlsProbeResult } from '@core/http/tls-probe.js';
 import type { EndpointScannerData } from '@scanners/endpoint-scanner.js';
+import { buildTestContext } from '../support/test-context.js';
 
 function createContext(): DefaultAuditContext {
-  return new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'audit',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
+  return buildTestContext({ authorizationMode: 'audit' });
 }
 
 const ALL_HEADERS_PRESENT: HeaderScannerData = {

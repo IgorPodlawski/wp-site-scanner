@@ -1,23 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { HttpScanner } from '@scanners/http-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import type { HttpClient, HttpClientOptions, HttpResponse } from '@core/http/http-client.js';
-
-const OPTIONS: HttpClientOptions = {
-  timeoutMs: 1000,
-  maxRedirects: 5,
-  maxResponseBytes: 1_000_000,
-  userAgent: 'wp-audit-test/0.1',
-};
+import { TEST_HTTP_OPTIONS as OPTIONS, buildTestContext } from '../support/test-context.js';
 
 function createContext(): DefaultAuditContext {
-  return new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'prospect',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
+  return buildTestContext();
 }
 
 describe('HttpScanner', () => {

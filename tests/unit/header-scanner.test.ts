@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { HeaderScanner } from '@scanners/header-scanner.js';
-import { DefaultAuditContext } from '@core/types/audit-context.js';
-import { buildTarget } from '@core/types/target.js';
-import type { HttpResponse } from '@core/http/http-client.js';
+import type { DefaultAuditContext } from '@core/types/audit-context.js';
+import { buildTestContext, buildHttpResponse } from '../support/test-context.js';
 
 function createContext(headers: Record<string, string>): DefaultAuditContext {
-  const context = new DefaultAuditContext({
-    target: buildTarget('https://example.com'),
-    authorizationMode: 'prospect',
-    profile: 'standard',
-    startedAt: new Date(0).toISOString(),
-  });
-  const response: HttpResponse = { url: 'https://example.com/', status: 200, headers, body: '' };
-  context.setHttpResponse(response);
+  const context = buildTestContext();
+  context.setHttpResponse(buildHttpResponse('', { headers }));
   return context;
 }
 
@@ -68,12 +61,7 @@ describe('HeaderScanner', () => {
   });
 
   it('supports() is false until the HTTP response has been fetched', () => {
-    const context = new DefaultAuditContext({
-      target: buildTarget('https://example.com'),
-      authorizationMode: 'prospect',
-      profile: 'standard',
-      startedAt: new Date(0).toISOString(),
-    });
+    const context = buildTestContext();
     const scanner = new HeaderScanner();
 
     expect(scanner.supports(context)).toBe(false);

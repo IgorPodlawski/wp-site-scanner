@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { HttpClient, HttpClientOptions } from '../core/http/http-client.js';
 import type { CacheStore } from '../storage/cache-store.js';
 import { buildCacheKey } from '../storage/cache-key.js';
-import { ok, err, type Result } from '../utils/result.js';
+import type { Result } from '../utils/result.js';
+import { withRetry } from '../utils/retry.js';
+import { withCache } from '../utils/cache-helper.js';
 import {
   coreStableVersionsSchema,
   type CoreStableVersions,
@@ -71,53 +73,32 @@ export class WordPressOrgClient {
    * enrichment (audit → 'partial'), not "no such plugin".
    */
   async getPluginInfo(slug: string): Promise<Result<WordPressOrgPluginInfo | undefined, Error>> {
-    return this.cached(buildCacheKey('wordpress-org', 'plugin', slug, 'latest'), () =>
-      this.withRetry(() => this.fetchPluginOnce(slug)),
+    return withCache(
+      this.cache,
+      buildCacheKey('wordpress-org', 'plugin', slug, 'latest'),
+      WordPressOrgClient.CACHE_TTL_MS,
+      () => withRetry(() => this.fetchPluginOnce(slug)),
     );
   }
 
   /** Same not-found/failure semantics as {@link getPluginInfo}, for themes. */
   async getThemeInfo(slug: string): Promise<Result<WordPressOrgThemeInfo | undefined, Error>> {
-    return this.cached(buildCacheKey('wordpress-org', 'theme', slug, 'latest'), () =>
-      this.withRetry(() => this.fetchThemeOnce(slug)),
+    return withCache(
+      this.cache,
+      buildCacheKey('wordpress-org', 'theme', slug, 'latest'),
+      WordPressOrgClient.CACHE_TTL_MS,
+      () => withRetry(() => this.fetchThemeOnce(slug)),
     );
   }
 
   /** The full version -> status map from wordpress.org/core/stable-check/. There is no "not found" case here. */
   async getCoreStableVersions(): Promise<Result<CoreStableVersions, Error>> {
-    return this.cached(buildCacheKey('wordpress-org', 'core', 'stable-check', 'latest'), () =>
-      this.withRetry(() => this.fetchCoreStableVersionsOnce()),
+    return withCache(
+      this.cache,
+      buildCacheKey('wordpress-org', 'core', 'stable-check', 'latest'),
+      WordPressOrgClient.CACHE_TTL_MS,
+      () => withRetry(() => this.fetchCoreStableVersionsOnce()),
     );
-  }
-
-  private async cached<T>(
-    cacheKey: string,
-    fetch: () => Promise<Result<T, Error>>,
-  ): Promise<Result<T, Error>> {
-    const cached = await this.cache.get<{ value: T }>(cacheKey);
-    if (cached !== undefined) {
-      return ok(cached.value);
-    }
-
-    const result = await fetch();
-    if (result.ok) {
-      await this.cache.set(cacheKey, { value: result.value }, WordPressOrgClient.CACHE_TTL_MS);
-    }
-    return result;
-  }
-
-  /** Retries at most once, per CLAUDE.md's "every external API must ... retry at most once". */
-  private async withRetry<T>(fetcher: () => Promise<T>): Promise<Result<T, Error>> {
-    try {
-      return ok(await fetcher());
-    } catch {
-      // one retry
-    }
-    try {
-      return ok(await fetcher());
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
   }
 
   private async fetchPluginOnce(slug: string): Promise<WordPressOrgPluginInfo | undefined> {
