@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { MockAgent } from 'undici';
-import { UndiciHttpClient } from '@core/http/http-client.js';
+import { UndiciHttpClient, destroyQuietly } from '@core/http/http-client.js';
 import { SsrfRejectedError, UnreachableTargetError } from '@core/errors.js';
 
 const BASE_OPTIONS = {
@@ -138,5 +139,20 @@ describe('UndiciHttpClient', () => {
     await expect(client.fetchUrl('https://example.com/', BASE_OPTIONS)).rejects.toThrow(
       SsrfRejectedError,
     );
+  });
+});
+
+describe('destroyQuietly', () => {
+  it('attaches a listener so an async error emitted after destroy does not crash the process', () => {
+    // Regression: undici's BodyReadable can emit an 'error' event (e.g.
+    // UND_ERR_ABORTED) asynchronously after .destroy() on a body that was
+    // never fully consumed (the redirect-handling path never reads the
+    // body at all). With zero listeners, Node's EventEmitter throws
+    // synchronously on 'error' — exactly the crash this guards against.
+    const body = Object.assign(new EventEmitter(), { destroy: () => {} });
+
+    destroyQuietly(body as never);
+
+    expect(() => body.emit('error', new Error('UND_ERR_ABORTED'))).not.toThrow();
   });
 });

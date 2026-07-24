@@ -92,9 +92,17 @@ export async function resolveAndValidateAddress(
  * the address we already validated, while SNI/Host still use the original
  * hostname. This closes the TOCTOU gap where DNS could resolve to a
  * different (private) address between our check and the actual connection.
+ *
+ * `rejectUnauthorized: false` is deliberate, mirroring core/http/tls-probe.ts:
+ * an expired/self-signed/mismatched certificate is itself something
+ * TlsScanner already detects and reports as a finding — it must not also
+ * make every *other* scanner's fetch fail outright. A real browser still
+ * renders the page behind a warning interstitial; refusing to even look at
+ * the content would make this tool unable to audit exactly the sites most
+ * likely to have a real, sales-relevant TLS problem.
  */
 function createPinnedDispatcher(resolvedIp: string): Dispatcher {
-  const connect = buildConnector({});
+  const connect = buildConnector({ rejectUnauthorized: false });
   return new Agent({
     connect: (options, callback) => {
       connect({ ...options, hostname: resolvedIp, servername: options.hostname }, callback);
@@ -121,6 +129,18 @@ function normalizeHeaders(
   return normalized;
 }
 
+/**
+ * Destroying an undici BodyReadable that hasn't been fully consumed emits an
+ * async 'error' event (UND_ERR_ABORTED) on the stream itself, separate from
+ * whatever error we're already throwing/handling. With no listener attached,
+ * that becomes an *unhandled* 'error' event, which crashes the whole Node
+ * process — not just this request. A no-op listener absorbs it safely.
+ */
+export function destroyQuietly(body: Dispatcher.ResponseData['body']): void {
+  body.on('error', () => {});
+  body.destroy();
+}
+
 async function readBodyWithLimit(
   body: Dispatcher.ResponseData['body'],
   maxBytes: number,
@@ -132,7 +152,7 @@ async function readBodyWithLimit(
     const buffer = chunk as Buffer;
     total += buffer.length;
     if (total > maxBytes) {
-      body.destroy();
+      destroyQuietly(body);
       throw new UnreachableTargetError(
         url,
         new Error(`Response exceeded the ${maxBytes}-byte limit.`),
@@ -173,7 +193,7 @@ export class UndiciHttpClient implements HttpClient {
         }
 
         if (isRedirect(response.statusCode)) {
-          response.body.destroy();
+          destroyQuietly(response.body);
           const location = firstHeaderValue(response.headers['location']);
           if (!location) {
             throw new UnreachableTargetError(

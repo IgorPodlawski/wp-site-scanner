@@ -404,6 +404,10 @@ Limits (config defaults, overridable via env):
 
 Never perform: brute force, exploits, login attempts, destructive actions.
 
+**TLS certificate validation is deliberately disabled on the shared `UndiciHttpClient`** (`rejectUnauthorized: false` in `core/http/http-client.ts`'s `createPinnedDispatcher`) — this is not an oversight. An expired/self-signed/mismatched certificate must not make every scanner's fetch fail outright; `TlsScanner` (which connects the same way, on purpose) is the one that inspects and reports the cert problem as a proper finding. Without this, the tool couldn't audit exactly the sites most likely to have a real, sales-relevant TLS problem — confirmed against a real client site whose cert had expired months earlier (full audit failed with "unreachable target" until this was fixed). This is safe specifically because we never send secrets over these connections and do our own independent, authoritative TLS validation via `TlsScanner` — do not "fix" this back to strict validation.
+
+**A redirect (or oversized) response body must be discarded via a helper that first attaches a no-op `error` listener** (`destroyQuietly()` in `http-client.ts`), never a bare `.destroy()`. undici's `BodyReadable` can emit an async `'error'` event (`UND_ERR_ABORTED`) after being destroyed unconsumed, and Node crashes the _entire process_ on an error event with zero listeners — this isn't caught by any try/catch, since it isn't thrown synchronously where the destroy happens. Found via a real `--profile deep` audit crashing mid-run with an unhandled `RequestAbortedError`.
+
 ---
 
 # Environment variables
