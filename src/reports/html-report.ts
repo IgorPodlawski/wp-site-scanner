@@ -7,6 +7,7 @@ import type {
   FindingSeverity,
   Insight,
   ScoreSummary,
+  VersionInfo,
 } from '../core/types/index.js';
 import type { Locale, LocaleMessages } from '../i18n/types.js';
 import { loadLocale } from '../i18n/loader.js';
@@ -40,18 +41,46 @@ function text(t: Translate, key: string, params?: Record<string, string | number
   return escapeHtml(t(key, params));
 }
 
+/**
+ * Always rendered, whether or not any finding ended up referencing the
+ * version — a correctly-detected, up-to-date core version produces no
+ * finding at all (nothing to flag), which previously meant it was invisible
+ * everywhere in the report. Includes confidence inline so an `inferred`
+ * value reads as exactly that, not as an unqualified fact.
+ */
+function renderCoreVersionValue(result: AuditResult, t: Translate): string {
+  const version = findScannerData<{ version: VersionInfo | undefined }>(
+    result,
+    'core-version-scanner',
+  )?.version;
+  if (!version) {
+    return text(t, 'report.summary.coreVersionUnknown');
+  }
+  return `${escapeHtml(version.value)} (${text(t, `report.confidence.${version.confidence}`)})`;
+}
+
 function renderSummarySection(result: AuditResult, t: Translate): string {
   const rows: Array<[string, string]> = [
     [text(t, 'report.summary.target'), escapeHtml(result.target.domain)],
     [text(t, 'report.summary.mode'), text(t, `report.mode.${result.authorizationMode}`)],
     [text(t, 'report.summary.profile'), escapeHtml(result.profile)],
     [text(t, 'report.summary.status'), text(t, `report.status.${result.status}`)],
-    [text(t, 'report.summary.wordpress'), text(t, result.isWordPress ? 'report.value.yes' : 'report.value.no')],
+    [
+      text(t, 'report.summary.wordpress'),
+      text(t, result.isWordPress ? 'report.value.yes' : 'report.value.no'),
+    ],
+    ...(result.isWordPress
+      ? ([[text(t, 'report.summary.coreVersion'), renderCoreVersionValue(result, t)]] as Array<
+          [string, string]
+        >)
+      : []),
     [text(t, 'report.summary.startedAt'), escapeHtml(result.startedAt)],
     [text(t, 'report.summary.finishedAt'), escapeHtml(result.finishedAt)],
   ];
 
-  const rowsHtml = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
+  const rowsHtml = rows
+    .map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`)
+    .join('');
   return `<h2>${text(t, 'report.summary.title')}</h2><table>${rowsHtml}</table>`;
 }
 

@@ -4,7 +4,19 @@ import type { VersionInfo, VersionSource } from '../core/types/version.js';
 import { deriveConfidence } from '../analysis/version-confidence.js';
 
 const GENERATOR_PATTERN = /<meta[^>]+name=["']generator["'][^>]*wordpress\s+([\d.]+)/i;
-const ASSET_QUERY_PATTERN = /\/wp-(?:includes|admin)\/[^"'\s]+\?ver=([\d.]+)/i;
+
+// Deliberately narrow: matching *any* /wp-includes/...?ver= is a real false-positive
+// trap. WordPress bundles third-party libraries under /wp-includes/js/ (jQuery,
+// jQuery Migrate, jQuery UI, ...) that carry their own independent version —
+// e.g. jquery.min.js?ver=3.7.1 has nothing to do with WP core being "3.7.1"
+// (a genuinely ancient, insecure release), it's just jQuery's own current
+// version colliding with an old WP release number. Block-editor "dist" bundles
+// (wp-includes/js/dist/*, wp-includes/css/dist/*) are just as unsafe — some of
+// them use a content-hash as their `?ver=`, not the WP version at all (seen
+// live: hooks.min.js?ver=7496969728). Only a small set of files WordPress
+// itself authors (not vendors) reliably carry the exact core version here.
+const CORE_ASSET_QUERY_PATTERN =
+  /\/wp-includes\/(?:js\/wp-emoji-release\.min\.js|js\/wp-embed\.min\.js|css\/dashicons\.min\.css)\?ver=([\d.]+)/i;
 
 /** Detects WordPress core version from generator meta / asset query strings. */
 export class CoreVersionScanner implements Scanner {
@@ -20,7 +32,7 @@ export class CoreVersionScanner implements Scanner {
     const response = context.getHttpResponse() as HttpResponse;
 
     const generatorVersion = response.body.match(GENERATOR_PATTERN)?.[1];
-    const assetQueryVersion = response.body.match(ASSET_QUERY_PATTERN)?.[1];
+    const assetQueryVersion = response.body.match(CORE_ASSET_QUERY_PATTERN)?.[1];
 
     const version = this.buildVersionInfo(generatorVersion, assetQueryVersion);
 

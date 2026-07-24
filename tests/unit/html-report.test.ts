@@ -108,4 +108,59 @@ describe('renderHtml', () => {
     expect(html).toContain('Authorization record');
     expect(html).toContain('explicit authorization granted');
   });
+
+  describe('core version visibility', () => {
+    it('always shows the detected core version, even when no finding references it', async () => {
+      const result = baseResult({
+        scannerResults: [
+          {
+            scannerName: 'core-version-scanner',
+            status: 'ok',
+            data: {
+              version: {
+                value: '7.0.2',
+                sources: ['asset-query-string'],
+                confidence: 'inferred',
+              },
+            },
+            durationMs: 0,
+          },
+        ],
+        findings: [], // a healthy, up-to-date version produces no finding at all
+      });
+
+      const html = await renderHtml(result, 'en');
+
+      expect(html).toContain('WordPress core version');
+      expect(html).toContain('7.0.2');
+      expect(html).toContain('Inferred');
+    });
+
+    it('shows "not detected" when the scanner found no version, instead of omitting the row', async () => {
+      const result = baseResult({
+        scannerResults: [
+          {
+            scannerName: 'core-version-scanner',
+            status: 'ok',
+            data: { version: undefined },
+            durationMs: 0,
+          },
+        ],
+      });
+
+      const html = await renderHtml(result, 'en');
+
+      expect(html).toContain('WordPress core version');
+      expect(html).toContain('Not detected');
+    });
+
+    it('omits the core version row entirely for a non-WordPress target', async () => {
+      const result = baseResult({ isWordPress: false, scannerResults: [] });
+
+      const html = await renderHtml(result, 'en');
+
+      expect(html).not.toContain('report.summary.coreVersion');
+      expect(html).not.toContain('WordPress core version');
+    });
+  });
 });
