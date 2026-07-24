@@ -313,6 +313,7 @@ Rules:
 - `?ver=1.2.3` on an asset is `inferred` at best (cache-busters lie).
 - A single source → max `corroborated`.
 - `confirmed` requires **two independent sources** agreeing (e.g. `readme` + `stylesheet`).
+- **A candidate version must match `major.minor[.patch]` (require the dot) before it's accepted from anywhere — generator meta or asset `?ver=`.** Caching/optimization plugins (seen live: WP Rocket) rewrite the `?ver=` of _any_ asset — including the small allowlist of WordPress-authored files `CoreVersionScanner` otherwise trusts (`wp-emoji-release.min.js`, `wp-embed.min.js`, `dashicons.min.css`) — to their own cache-busting value: a bare Unix timestamp (`?ver=1774442679`, no dot → now correctly rejected) or a content hash (`?ver=85d537c6`, which a digits-only pattern used to partial-match as the bogus version `"85"`). Being on the file allowlist is necessary but not sufficient; the captured value must still look like a version.
 
 ---
 

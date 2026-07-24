@@ -125,6 +125,36 @@ describe('CoreVersionScanner', () => {
     });
   });
 
+  it('ignores a cache-busting timestamp rewritten onto an allowlisted core asset', async () => {
+    // Real-world regression: WP Rocket (and similar optimization plugins) rewrite
+    // every enqueued script/style's ?ver=, including allowlisted core files, to a
+    // sitewide cache-busting value — seen live as a 10-digit Unix timestamp on
+    // dashicons.min.css. Being on the allowlist path is necessary but not
+    // sufficient; the value itself must still look like a version.
+    const context = createContext(
+      '<link rel="stylesheet" href="/wp-includes/css/dashicons.min.css?ver=1774442679" />',
+    );
+    const scanner = new CoreVersionScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({ version: undefined });
+  });
+
+  it('ignores a content hash rewritten onto wp-emoji-release.min.js', async () => {
+    // Real-world regression: wp-emoji-release.min.js?ver=85d537c6 (a hex content
+    // hash, not a version) was previously partial-matched by a digits-only
+    // pattern as the bogus version "85".
+    const context = createContext(
+      '<script src="/wp-includes/js/wp-emoji-release.min.js?ver=85d537c6"></script>',
+    );
+    const scanner = new CoreVersionScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({ version: undefined });
+  });
+
   it('returns no version when neither signal is present', async () => {
     const context = createContext('<html><body>Hello</body></html>');
     const scanner = new CoreVersionScanner();
