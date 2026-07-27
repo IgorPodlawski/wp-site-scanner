@@ -57,9 +57,9 @@ export function registerAuditCommand(program: Command): void {
         createScanners(config),
         config,
         logger,
-        createWordPressOrgClient(config),
-        createWpscanClient(config),
-        createPageSpeedClient(config),
+        createWordPressOrgClient(config, options.cache),
+        createWpscanClient(config, options.cache),
+        createPageSpeedClient(config, options.cache),
       );
 
       try {

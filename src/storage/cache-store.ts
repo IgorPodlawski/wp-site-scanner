@@ -44,3 +44,14 @@ export class FileCacheStore implements CacheStore {
     await writeFile(filePath, JSON.stringify(envelope), 'utf-8');
   }
 }
+
+/** Backs `--no-cache`: always a miss, never persists — every enrichment lookup hits the real API fresh. */
+export class NoopCacheStore implements CacheStore {
+  async get<T>(): Promise<T | undefined> {
+    return undefined;
+  }
+
+  async set(): Promise<void> {
+    // intentionally does nothing
+  }
+}
