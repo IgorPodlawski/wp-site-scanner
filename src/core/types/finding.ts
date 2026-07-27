@@ -15,6 +15,21 @@ export interface FindingEvidence {
   raw?: unknown;
 }
 
+/**
+ * Present only on a merged component (WordPress core/plugin/theme) finding.
+ * `vulnerabilitySeverities` is the resolved severity of each *applicable*,
+ * deduplicated vulnerability — the finding's own `severity` is the max of
+ * these, and scoring-engine.ts uses the full list (not just the max) for its
+ * per-component aggregation. Empty when the component is outdated but has
+ * no known vulnerabilities.
+ */
+export interface ComponentFindingInfo {
+  kind: 'core' | 'plugin' | 'theme';
+  slug: string;
+  isOutdated: boolean;
+  vulnerabilitySeverities: FindingSeverity[];
+}
+
 export interface Finding {
   id: string;
   category: FindingCategory;
@@ -25,35 +40,19 @@ export interface Finding {
   recommendationKey: string;
   recommendationParams?: Record<string, string | number>;
   evidence: FindingEvidence[];
+  component?: ComponentFindingInfo;
 }
 
-const SEVERITY_ORDER: FindingSeverity[] = ['info', 'low', 'medium', 'high', 'critical'];
+export type FindingInput = Finding;
 
 /**
- * Confidence caps severity — hard rule, not a preference. Only `confirmed`
- * may reach `critical`; `inferred` may never exceed `medium`.
- */
-const CONFIDENCE_CAP: Record<FindingConfidence, FindingSeverity> = {
-  inferred: 'medium',
-  corroborated: 'high',
-  confirmed: 'critical',
-};
-
-export function capSeverityByConfidence(
-  requested: FindingSeverity,
-  confidence: FindingConfidence,
-): FindingSeverity {
-  const cap = CONFIDENCE_CAP[confidence];
-  return SEVERITY_ORDER.indexOf(requested) > SEVERITY_ORDER.indexOf(cap) ? cap : requested;
-}
-
-export type FindingInput = Omit<Finding, 'severity'> & { requestedSeverity: FindingSeverity };
-
-/**
- * The only supported way to construct a Finding. Enforces the confidence cap
- * at construction time so a violating Finding cannot be built by callers.
+ * The only supported way to construct a Finding. Severity is taken as given
+ * — it must already be resolved (from CVSS/WPScan data for a vulnerability,
+ * or a fixed severity for non-vulnerability findings) before reaching here.
+ * Confidence never adjusts severity; it only ever affects scoring weight and
+ * report wording, both handled elsewhere (scoring-engine.ts, report
+ * rendering).
  */
 export function createFinding(input: FindingInput): Finding {
-  const { requestedSeverity, ...rest } = input;
-  return { ...rest, severity: capSeverityByConfidence(requestedSeverity, input.confidence) };
+  return { ...input };
 }

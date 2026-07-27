@@ -271,7 +271,7 @@ describe('AuditOrchestrator.run', () => {
     expect(result.findings[0]).toMatchObject({
       category: 'maintenance',
       confidence: 'corroborated',
-      recommendationKey: 'finding.plugin.outdated.recommendation',
+      recommendationKey: 'finding.component.plugin.outdated.recommendation',
     });
   });
 
@@ -372,7 +372,7 @@ describe('AuditOrchestrator.run', () => {
     const wpscanClient = fakeWpscanClient({
       getPluginVulnerabilities: async (slug: string) =>
         slug === 'akismet'
-          ? ok([{ id: '1', title: 'Some XSS', fixedIn: '5.1', references: [] }])
+          ? ok([{ id: '1', title: 'Some XSS', fixedIn: '5.1', cvssScore: 9.8, references: [] }])
           : ok([]),
     });
     const orchestrator = new AuditOrchestrator(
@@ -395,7 +395,7 @@ describe('AuditOrchestrator.run', () => {
       category: 'security',
       severity: 'critical',
       confidence: 'confirmed',
-      recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
+      recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
     });
   });
 
@@ -419,7 +419,15 @@ describe('AuditOrchestrator.run', () => {
     const wpscanClient = fakeWpscanClient({
       getCoreVulnerabilities: async (version: string) =>
         version === '6.5.4'
-          ? ok([{ id: '1', title: 'Contributor+ Stored XSS', fixedIn: '6.5.5', references: [] }])
+          ? ok([
+              {
+                id: '1',
+                title: 'Contributor+ Stored XSS',
+                fixedIn: '6.5.5',
+                cvssScore: 9.8,
+                references: [],
+              },
+            ])
           : ok([]),
     });
     const orchestrator = new AuditOrchestrator(
@@ -442,7 +450,7 @@ describe('AuditOrchestrator.run', () => {
       category: 'security',
       severity: 'critical',
       confidence: 'confirmed',
-      recommendationKey: 'finding.core.vulnerability.confirmed.recommendation',
+      recommendationKey: 'finding.component.core.vulnerable.recommendation',
     });
   });
 

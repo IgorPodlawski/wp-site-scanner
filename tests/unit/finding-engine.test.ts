@@ -298,8 +298,8 @@ describe('generateFindings', () => {
     expect(generateFindings(context)).toEqual([]);
   });
 
-  describe('outdated plugins', () => {
-    it('flags a plugin older than the wordpress.org latest', () => {
+  describe('outdated plugins (no known vulnerabilities)', () => {
+    it('flags a plugin older than the wordpress.org latest as a maintenance finding', () => {
       const context = createContext();
       context.addScannerResult({
         scannerName: 'plugin-scanner',
@@ -323,11 +323,18 @@ describe('generateFindings', () => {
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
         category: 'maintenance',
+        severity: 'medium',
         confidence: 'corroborated',
-        recommendationKey: 'finding.plugin.outdated.recommendation',
+        recommendationKey: 'finding.component.plugin.outdated.recommendation',
       });
       // recommendationParams must carry {{slug}} — the recommendation message interpolates it
       expect(findings[0]!.recommendationParams).toEqual({ slug: 'akismet' });
+      expect(findings[0]!.component).toEqual({
+        kind: 'plugin',
+        slug: 'akismet',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      });
     });
 
     it('flags nothing when the installed version already matches the latest', () => {
@@ -354,7 +361,7 @@ describe('generateFindings', () => {
   });
 
   describe('plugin vulnerabilities', () => {
-    it('asserts a confirmed vulnerability as critical, with the CVE id appended to the title', () => {
+    it('resolves severity from CVSS, not from version-detection confidence', () => {
       const context = createContext();
       context.addScannerResult({
         scannerName: 'plugin-scanner',
@@ -362,8 +369,10 @@ describe('generateFindings', () => {
         data: {
           plugins: [
             {
+              // Deliberately 'inferred' — the whole point of this test is that a
+              // critical CVSS score must NOT be capped down by weak version confidence.
               slug: 'sitepress-multilingual-cms',
-              version: { value: '4.6.11', sources: ['plugin-readme'], confidence: 'confirmed' },
+              version: { value: '4.6.11', sources: ['asset-query-string'], confidence: 'inferred' },
             },
           ],
         },
@@ -375,6 +384,7 @@ describe('generateFindings', () => {
             id: 'abc-123',
             title: 'WPML Multilingual CMS < 4.6.13 - Contributor+ RCE',
             fixedIn: '4.6.13',
+            cvssScore: 9.8,
             references: ['CVE-2024-1234', 'https://wpscan.com/vulnerability/abc-123'],
           },
         ],
@@ -386,16 +396,95 @@ describe('generateFindings', () => {
       expect(findings[0]).toMatchObject({
         category: 'security',
         severity: 'critical',
-        confidence: 'confirmed',
-        recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
+        confidence: 'inferred',
+        recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+      });
+      expect(findings[0]!.component).toMatchObject({
+        kind: 'plugin',
+        slug: 'sitepress-multilingual-cms',
+        vulnerabilitySeverities: ['critical'],
       });
       // recommendationParams must carry {{slug}} — the recommendation message interpolates it
       expect(findings[0]!.recommendationParams).toEqual({ slug: 'sitepress-multilingual-cms' });
-      expect(findings[0]!.evidence[0]!.params).toEqual({
+      const vulnEvidence = findings[0]!.evidence.find((e) =>
+        e.descriptionKey.startsWith('finding.componentVulnerability.'),
+      );
+      expect(vulnEvidence?.descriptionKey).toBe(
+        'finding.componentVulnerability.plugin.potential.evidence',
+      );
+      expect(vulnEvidence?.params).toEqual({
         slug: 'sitepress-multilingual-cms',
-        installed: '4.6.11',
         title: 'WPML Multilingual CMS < 4.6.13 - Contributor+ RCE (CVE-2024-1234)',
       });
+    });
+
+    it('falls back to medium severity when WPScan provides no CVSS score', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'wordpress-seo',
+              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'wordpress-seo': [
+          {
+            id: 'seo-1',
+            title: 'Yoast SEO < 26.9 - Contributor+ Stored XSS',
+            fixedIn: '26.9',
+            references: [],
+          },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]).toMatchObject({ severity: 'medium', confidence: 'confirmed' });
+    });
+
+    it('marks a vulnerability "confirmed" only when applicable and the version is confirmed, else "potential"', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'wordpress-seo',
+              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'wordpress-seo': [
+          {
+            id: 'seo-1',
+            title: 'Yoast SEO < 26.9 - Contributor+ Stored XSS',
+            fixedIn: '26.9',
+            cvssScore: 6.1,
+            references: [],
+          },
+        ],
+      });
+
+      const findings = generateFindings(context);
+      const vulnEvidence = findings[0]!.evidence.find((e) =>
+        e.descriptionKey.startsWith('finding.componentVulnerability.'),
+      );
+
+      expect(findings[0]!.severity).toBe('medium');
+      expect(vulnEvidence?.descriptionKey).toBe(
+        'finding.componentVulnerability.plugin.potential.evidence',
+      );
     });
 
     it('does not append anything to the title when WPScan assigned no CVE id', () => {
@@ -424,43 +513,11 @@ describe('generateFindings', () => {
       });
 
       const findings = generateFindings(context);
+      const vulnEvidence = findings[0]!.evidence.find((e) =>
+        e.descriptionKey.startsWith('finding.componentVulnerability.'),
+      );
 
-      expect(findings[0]!.evidence[0]!.params).toMatchObject({ title: 'Akismet - Some Issue' });
-    });
-
-    it('caps severity via confidence when the installed version is only corroborated, not confirmed', () => {
-      const context = createContext();
-      context.addScannerResult({
-        scannerName: 'plugin-scanner',
-        status: 'ok',
-        data: {
-          plugins: [
-            {
-              slug: 'wordpress-seo',
-              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'corroborated' },
-            },
-          ],
-        },
-        durationMs: 0,
-      });
-      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
-        'wordpress-seo': [
-          {
-            id: 'seo-1',
-            title: 'Yoast SEO < 26.9 - Contributor+ Stored XSS',
-            fixedIn: '26.9',
-            references: [],
-          },
-        ],
-      });
-
-      const findings = generateFindings(context);
-
-      expect(findings[0]).toMatchObject({
-        severity: 'high',
-        confidence: 'corroborated',
-        recommendationKey: 'finding.plugin.vulnerability.potential.recommendation',
-      });
+      expect(vulnEvidence?.params).toMatchObject({ title: 'Akismet - Some Issue' });
     });
 
     it('does not flag a vulnerability the installed version has already moved past', () => {
@@ -484,9 +541,45 @@ describe('generateFindings', () => {
 
       expect(generateFindings(context)).toEqual([]);
     });
+
+    it('merges outdated status and vulnerabilities for the same plugin into one finding, not two', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_PLUGIN_ENRICHMENT, {
+        akismet: { slug: 'akismet', version: '5.7', lastUpdated: '', activeInstalls: 1 },
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [
+          { id: 'v1', title: 'Some issue', fixedIn: '5.1', cvssScore: 7.5, references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({ category: 'security', severity: 'high' });
+      expect(findings[0]!.component).toEqual({
+        kind: 'plugin',
+        slug: 'akismet',
+        isOutdated: true,
+        vulnerabilitySeverities: ['high'],
+      });
+    });
   });
 
-  describe('outdated themes', () => {
+  describe('outdated themes (no known vulnerabilities)', () => {
     it('flags a theme older than the wordpress.org latest', () => {
       const context = createContext();
       context.addScannerResult({
@@ -516,7 +609,7 @@ describe('generateFindings', () => {
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
         category: 'maintenance',
-        recommendationKey: 'finding.theme.outdated.recommendation',
+        recommendationKey: 'finding.component.theme.outdated.recommendation',
       });
     });
 
@@ -541,8 +634,11 @@ describe('generateFindings', () => {
     });
   });
 
-  describe('core version status', () => {
-    it('flags an insecure core version as a critical-eligible security finding', () => {
+  describe('core version status (no itemized vulnerabilities)', () => {
+    it('flags an insecure core version as a maintenance finding when WPScan has no itemized data for it', () => {
+      // Severity comes from vulnerability data, never from wordpress.org's coarse
+      // status flag alone — the distinction between "insecure" and "outdated"
+      // still shows up in the evidence text, just not in severity/category.
       const context = createContext();
       context.addScannerResult({
         scannerName: 'core-version-scanner',
@@ -565,11 +661,16 @@ describe('generateFindings', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
-        category: 'security',
-        severity: 'critical',
+        category: 'maintenance',
+        severity: 'medium',
         confidence: 'confirmed',
-        recommendationKey: 'finding.core.insecure.recommendation',
+        recommendationKey: 'finding.component.core.outdated.recommendation',
       });
+      expect(
+        findings[0]!.evidence.some(
+          (e) => e.descriptionKey === 'finding.component.core.insecureStatus.evidence',
+        ),
+      ).toBe(true);
     });
 
     it('flags an outdated (but not insecure) core version as a maintenance finding', () => {
@@ -593,8 +694,13 @@ describe('generateFindings', () => {
       expect(findings[0]).toMatchObject({
         category: 'maintenance',
         severity: 'medium',
-        recommendationKey: 'finding.core.outdated.recommendation',
+        recommendationKey: 'finding.component.core.outdated.recommendation',
       });
+      expect(
+        findings[0]!.evidence.some(
+          (e) => e.descriptionKey === 'finding.component.core.outdatedStatus.evidence',
+        ),
+      ).toBe(true);
     });
 
     it('flags nothing when the installed version is the latest', () => {
@@ -629,42 +735,7 @@ describe('generateFindings', () => {
   });
 
   describe('core vulnerabilities', () => {
-    it('asserts a confirmed core vulnerability as critical, with the CVE id appended to the title', () => {
-      const context = createContext();
-      context.addScannerResult({
-        scannerName: 'core-version-scanner',
-        status: 'ok',
-        data: {
-          version: { value: '6.5.4', sources: ['generator-meta'], confidence: 'confirmed' },
-        },
-        durationMs: 0,
-      });
-      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
-        {
-          id: 'core-1',
-          title: 'WordPress < 6.5.5 - Contributor+ Stored XSS',
-          fixedIn: '6.5.5',
-          references: ['CVE-2024-9999'],
-        },
-      ]);
-
-      const findings = generateFindings(context);
-
-      expect(findings).toHaveLength(1);
-      expect(findings[0]).toMatchObject({
-        category: 'security',
-        severity: 'critical',
-        confidence: 'confirmed',
-        recommendationKey: 'finding.core.vulnerability.confirmed.recommendation',
-      });
-      expect(findings[0]!.evidence[0]!.params).toEqual({
-        slug: 'wordpress-core',
-        installed: '6.5.4',
-        title: 'WordPress < 6.5.5 - Contributor+ Stored XSS (CVE-2024-9999)',
-      });
-    });
-
-    it('caps severity via confidence when the core version is only inferred', () => {
+    it('resolves severity from CVSS, not from version-detection confidence', () => {
       const context = createContext();
       context.addScannerResult({
         scannerName: 'core-version-scanner',
@@ -675,16 +746,53 @@ describe('generateFindings', () => {
         durationMs: 0,
       });
       context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        {
+          id: 'core-1',
+          title: 'WordPress < 6.5.5 - Contributor+ Stored XSS',
+          fixedIn: '6.5.5',
+          cvssScore: 9.8,
+          references: ['CVE-2024-9999'],
+        },
+      ]);
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'security',
+        severity: 'critical',
+        confidence: 'inferred',
+        recommendationKey: 'finding.component.core.vulnerable.recommendation',
+      });
+      const vulnEvidence = findings[0]!.evidence.find((e) =>
+        e.descriptionKey.startsWith('finding.componentVulnerability.'),
+      );
+      expect(vulnEvidence?.descriptionKey).toBe(
+        'finding.componentVulnerability.core.potential.evidence',
+      );
+      expect(vulnEvidence?.params).toEqual({
+        slug: 'wordpress-core',
+        title: 'WordPress < 6.5.5 - Contributor+ Stored XSS (CVE-2024-9999)',
+      });
+    });
+
+    it('falls back to medium severity when WPScan provides no CVSS score', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
         { id: 'core-1', title: 'Some core issue', fixedIn: '6.5.5', references: [] },
       ]);
 
       const findings = generateFindings(context);
 
-      expect(findings[0]).toMatchObject({
-        severity: 'medium',
-        confidence: 'inferred',
-        recommendationKey: 'finding.core.vulnerability.potential.recommendation',
-      });
+      expect(findings[0]).toMatchObject({ severity: 'medium', confidence: 'confirmed' });
     });
 
     it('does not flag a core vulnerability the installed version has already moved past', () => {
@@ -702,6 +810,73 @@ describe('generateFindings', () => {
       ]);
 
       expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('component finding grouping', () => {
+    it('takes the max severity across multiple applicable vulnerabilities for the same component', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [
+          { id: 'v1', title: 'Low issue', fixedIn: '5.1', cvssScore: 2.0, references: [] },
+          { id: 'v2', title: 'Critical issue', fixedIn: '5.1', cvssScore: 9.9, references: [] },
+          { id: 'v3', title: 'Medium issue', fixedIn: '5.1', cvssScore: 5.0, references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.severity).toBe('critical');
+      expect(findings[0]!.component?.vulnerabilitySeverities).toEqual([
+        'low',
+        'critical',
+        'medium',
+      ]);
+    });
+
+    it('deduplicates vulnerabilities sharing the same CVE before listing them as evidence', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [
+          { id: 'v1', title: 'Same issue (v1)', fixedIn: '5.1', references: ['CVE-2024-1111'] },
+          { id: 'v2', title: 'Same issue (v2)', fixedIn: '5.1', references: ['CVE-2024-1111'] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+      const vulnEvidenceCount = findings[0]!.evidence.filter((e) =>
+        e.descriptionKey.startsWith('finding.componentVulnerability.'),
+      ).length;
+
+      expect(vulnEvidenceCount).toBe(1);
+      expect(findings[0]!.component?.vulnerabilitySeverities).toHaveLength(1);
     });
   });
 });

@@ -32,7 +32,11 @@ export const wpscanVulnerabilitySchema = z.object({
   id: z.string(),
   title: z.string(),
   fixedIn: z.string().optional(),
+  introducedIn: z.string().optional(),
   cvssScore: z.number().optional(),
+  /** WPScan's own vulnerability category (e.g. "XSS", "SQLI") — the closest real "attack info" field available; CVSS-vector-level attack requirements (AV/AC/PR/UI) are not exposed by the API and are not parsed. */
+  vulnType: z.string().optional(),
+  description: z.string().optional(),
   references: z.array(z.string()).default([]),
 });
 export type WpscanVulnerability = z.infer<typeof wpscanVulnerabilitySchema>;

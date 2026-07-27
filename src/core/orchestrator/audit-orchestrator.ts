@@ -400,7 +400,7 @@ export class AuditOrchestrator {
       id: randomUUID(),
       category: 'infrastructure',
       confidence: 'confirmed',
-      requestedSeverity: 'info',
+      severity: 'info',
       sourceLayer: 1,
       businessImpact: 'none',
       recommendationKey: 'finding.notWordpress.recommendation',

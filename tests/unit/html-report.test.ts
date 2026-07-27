@@ -43,7 +43,7 @@ describe('renderHtml', () => {
       id: 'f1',
       category: 'security',
       confidence: 'confirmed',
-      requestedSeverity: 'info',
+      severity: 'info',
       sourceLayer: 1,
       businessImpact: 'weak',
       recommendationKey: 'finding.header.infoDisclosure.recommendation',

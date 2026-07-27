@@ -12,16 +12,36 @@ const WPSCAN_API_BASE = 'https://wpscan.com/api/v3';
 
 type ComponentKind = 'plugins' | 'themes';
 
+/**
+ * WPScan's `cvss` field, when populated, is an object shaped roughly like
+ * `{ score: number, vector: string, rating: string }` per WPScan's public
+ * v3 docs — but every real vulnerability sampled live this session had
+ * `cvss: null` (older, pre-CVSS-tracking entries), so the populated shape
+ * is NOT verified against a live example. Extracted defensively (`z.unknown()`
+ * + manual numeric check) so a wrong assumption about the shape degrades to
+ * "no CVSS score" rather than throwing. Re-verify against a populated
+ * example once the free-tier rate limit resets.
+ */
+function extractCvssScore(rawCvss: unknown): number | undefined {
+  if (rawCvss && typeof rawCvss === 'object' && 'score' in rawCvss) {
+    const score = (rawCvss as { score: unknown }).score;
+    if (typeof score === 'number') return score;
+  }
+  return undefined;
+}
+
 // wpscan.com/api/v3's actual wire format — kept local to this client rather
 // than in enrichment-types.ts, which holds the clean internal shape every
-// caller consumes. NOTE: unlike wordpress-org-client.ts, this has not been
-// smoke-tested against a live response (no WPSCAN_API_TOKEN was available
-// while building it) — verify against a real token before relying on it.
+// caller consumes.
 const rawVulnerabilitySchema = z
   .object({
     id: z.union([z.string(), z.number()]),
     title: z.string(),
     fixed_in: z.string().nullable().optional(),
+    introduced_in: z.string().nullable().optional(),
+    vuln_type: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    cvss: z.unknown().optional(),
     references: z
       .object({
         url: z.array(z.string()).optional(),
@@ -34,6 +54,10 @@ const rawVulnerabilitySchema = z
     id: String(raw.id),
     title: raw.title,
     ...(raw.fixed_in ? { fixedIn: raw.fixed_in } : {}),
+    ...(raw.introduced_in ? { introducedIn: raw.introduced_in } : {}),
+    ...(raw.vuln_type ? { vulnType: raw.vuln_type } : {}),
+    ...(raw.description ? { description: raw.description } : {}),
+    ...(extractCvssScore(raw.cvss) !== undefined ? { cvssScore: extractCvssScore(raw.cvss) } : {}),
     references: [
       ...(raw.references?.cve?.map((cve) => `CVE-${cve}`) ?? []),
       ...(raw.references?.url ?? []),

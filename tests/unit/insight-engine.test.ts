@@ -8,7 +8,7 @@ function finding(overrides: Partial<Parameters<typeof createFinding>[0]> = {}): 
     id: overrides.id ?? 'f1',
     category: 'security',
     confidence: 'confirmed',
-    requestedSeverity: 'low',
+    severity: 'low',
     sourceLayer: 1,
     businessImpact: 'weak',
     recommendationKey: 'finding.header.missingCsp.recommendation',
@@ -65,7 +65,7 @@ describe('generateInsights', () => {
       id: 'f3',
       category: 'security',
       confidence: 'confirmed',
-      requestedSeverity: 'critical',
+      severity: 'critical',
       recommendationKey: 'finding.core.insecure.recommendation',
     });
 
@@ -84,7 +84,7 @@ describe('generateInsights', () => {
       id: 'f1',
       category: 'security',
       confidence: 'confirmed',
-      requestedSeverity: 'critical',
+      severity: 'critical',
       recommendationKey: 'finding.endpoint.configBackupExposed.recommendation',
     });
 

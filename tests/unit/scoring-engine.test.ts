@@ -10,14 +10,14 @@ import type {
 
 function finding(
   category: FindingCategory,
-  requestedSeverity: FindingSeverity,
+  severity: FindingSeverity,
   confidence: FindingConfidence,
 ): Finding {
   return createFinding({
-    id: `${category}-${requestedSeverity}-${confidence}`,
+    id: `${category}-${severity}-${confidence}`,
     category,
     confidence,
-    requestedSeverity,
+    severity,
     sourceLayer: 1,
     businessImpact: 'weak',
     recommendationKey: 'rec.key',
