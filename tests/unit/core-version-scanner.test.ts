@@ -118,6 +118,39 @@ describe('CoreVersionScanner', () => {
     });
   });
 
+  it('accepts wp-util.min.js as a reliable core-version-tracking asset', async () => {
+    // Real-world regression: a site whose homepage referenced none of the
+    // original three allowlisted files (no emoji script, no wp-embed, no
+    // dashicons — all plausible if a plugin disables them, or dashicons is
+    // only enqueued for logged-in users) still exposed wp-util.min.js, which
+    // WordPress core registers with no explicit version (defaults to
+    // $wp_version, confirmed against script-loader.php) — same as the
+    // original three.
+    const context = createContext(
+      '<script src="/wp-includes/js/wp-util.min.js?ver=6.5.4"></script>',
+    );
+    const scanner = new CoreVersionScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({
+      version: { value: '6.5.4', sources: ['asset-query-string'], confidence: 'inferred' },
+    });
+  });
+
+  it('accepts block-library/style.min.css as a reliable core-version-tracking asset', async () => {
+    const context = createContext(
+      '<link rel="stylesheet" href="/wp-includes/css/dist/block-library/style.min.css?ver=6.5.4" />',
+    );
+    const scanner = new CoreVersionScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({
+      version: { value: '6.5.4', sources: ['asset-query-string'], confidence: 'inferred' },
+    });
+  });
+
   it('ignores a cache-busting timestamp rewritten onto an allowlisted core asset', async () => {
     // Real-world regression: WP Rocket (and similar optimization plugins) rewrite
     // every enqueued script/style's ?ver=, including allowlisted core files, to a

@@ -10,6 +10,7 @@ import type {
   VersionInfo,
 } from '../core/types/index.js';
 import { getScannerData } from '../core/types/scanner.js';
+import { getScoreBand } from '../analysis/score-band.js';
 import type { Locale, LocaleMessages } from '../i18n/types.js';
 import { loadLocale } from '../i18n/loader.js';
 import { interpolate } from '../i18n/translate.js';
@@ -87,17 +88,26 @@ function renderSummarySection(result: AuditResult, t: Translate): string {
   return `<h2>${text(t, 'report.summary.title')}</h2>${renderTable(rows)}`;
 }
 
+/** "72/100" plus a colored good/fair/poor badge, so a bare number never has to be read without context. */
+function renderScoreValue(value: number, t: Translate): string {
+  const band = getScoreBand(value);
+  return `${value}/100 <span class="badge score-${band}">${text(t, `report.scoreBand.${band}`)}</span>`;
+}
+
 function renderScoresSection(scores: ScoreSummary | undefined, t: Translate): string {
   if (!scores) return '';
 
   const rows: Array<[string, string]> = [
     ...scores.categories.map(
-      (c): [string, string] => [text(t, `score.category.${c.category}`), String(c.value)],
+      (c): [string, string] => [text(t, `score.category.${c.category}`), renderScoreValue(c.value, t)],
     ),
-    [text(t, 'score.category.overall'), String(scores.overall)],
+    [text(t, 'score.category.overall'), renderScoreValue(scores.overall, t)],
   ];
 
-  return `<h2>${text(t, 'report.section.scores')}</h2>${renderTable(rows)}`;
+  return (
+    `<h2>${text(t, 'report.section.scores')}</h2>` +
+    `<p class="scores-scale-note">${text(t, 'report.scores.scaleNote')}</p>${renderTable(rows)}`
+  );
 }
 
 function renderInsightsSection(insights: readonly Insight[], t: Translate): string {

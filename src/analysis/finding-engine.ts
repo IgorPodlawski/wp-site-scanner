@@ -15,6 +15,7 @@ import type {
   WpscanVulnerability,
 } from '../integrations/enrichment-types.js';
 import { compareVersions } from './version-confidence.js';
+import { getScoreBand } from './score-band.js';
 
 // The context.setEnrichment() keys AuditOrchestrator writes to and this module reads from.
 export const WORDPRESS_ORG_PLUGIN_ENRICHMENT = 'wordpress-org-plugins';
@@ -22,7 +23,11 @@ export const WORDPRESS_ORG_THEME_ENRICHMENT = 'wordpress-org-themes';
 export const WORDPRESS_ORG_CORE_ENRICHMENT = 'wordpress-org-core';
 export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
 export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
+export const WPSCAN_CORE_ENRICHMENT = 'wpscan-core';
 export const PAGESPEED_ENRICHMENT = 'pagespeed';
+
+/** Internal-only key for the synthetic "component" deriveVulnerabilityFindings uses for core — never rendered (the core.vulnerability.* i18n keys don't reference {{slug}}). */
+const CORE_VULNERABILITY_KEY = 'wordpress-core';
 
 const MISSING_HEADER_RULES: Array<{ header: SecurityHeaderName; key: string }> = [
   { header: 'strict-transport-security', key: 'finding.header.missingHsts' },
@@ -311,6 +316,20 @@ function isAffectedByVulnerability(
 }
 
 /**
+ * `WpscanVulnerability.references` flattens CVE ids and plain URLs into one
+ * array (see wpscan-client.ts). Appending the CVE id(s) to the displayed
+ * title — when WPScan actually assigned one, which isn't guaranteed for
+ * every entry — makes a finding look and read as the specific, citable
+ * vulnerability it is rather than a vague "known issue", without needing a
+ * second set of evidence/recommendation i18n keys just for the CVE-present
+ * case.
+ */
+function formatVulnerabilityTitle(vulnerability: WpscanVulnerability): string {
+  const cveIds = vulnerability.references.filter((ref) => ref.startsWith('CVE-'));
+  return cveIds.length > 0 ? `${vulnerability.title} (${cveIds.join(', ')})` : vulnerability.title;
+}
+
+/**
  * CLAUDE.md's CVE assertion rule, applied mechanically: a vulnerability is
  * only asserted as "confirmed applicable" when the component's version is
  * itself `confirmed` AND is conclusively inside the affected range.
@@ -347,13 +366,14 @@ function deriveVulnerabilityFindings(
           sourceLayer: 'third-party',
           businessImpact: 'strong',
           recommendationKey: `${messageKeyPrefix}.${messageKeySuffix}.recommendation`,
+          recommendationParams: { slug: component.slug },
           evidence: [
             {
               descriptionKey: `${messageKeyPrefix}.${messageKeySuffix}.evidence`,
               params: {
                 slug: component.slug,
                 installed: component.version.value,
-                title: vulnerability.title,
+                title: formatVulnerabilityTitle(vulnerability),
               },
               raw: vulnerability,
             },
@@ -366,9 +386,6 @@ function deriveVulnerabilityFindings(
   return findings;
 }
 
-const PAGESPEED_GOOD_THRESHOLD = 90;
-const PAGESPEED_POOR_THRESHOLD = 50;
-
 /**
  * Flags a low mobile PageSpeed performance score. `confidence: 'confirmed'`
  * — this is Google's own Lighthouse measurement of this exact URL, not an
@@ -376,12 +393,15 @@ const PAGESPEED_POOR_THRESHOLD = 50;
  * stable-check map. Only one finding per audit (never one per Core Web
  * Vital) — the individual LCP/CLS/INP numbers live in `raw` for the JSON
  * report, not as separate findings, per "three meaningful findings beat
- * fifty weak ones."
+ * fifty weak ones." Uses the same 0-100 good/fair/poor bands the scores
+ * section of the report shows, so "poor" here means the same thing it does
+ * there.
  */
 function derivePerformanceFindings(result: PageSpeedResult): Finding[] {
-  if (result.performanceScore >= PAGESPEED_GOOD_THRESHOLD) return [];
+  const band = getScoreBand(result.performanceScore);
+  if (band === 'good') return [];
 
-  const isPoor = result.performanceScore < PAGESPEED_POOR_THRESHOLD;
+  const isPoor = band === 'poor';
   const messageKeyPrefix = isPoor
     ? 'finding.performance.poor'
     : 'finding.performance.needsImprovement';
@@ -480,6 +500,22 @@ export function generateFindings(context: AuditContext): Finding[] {
         themeData.themes,
         themeVulnerabilities,
         'finding.theme.vulnerability',
+      ),
+    );
+  }
+
+  const coreVulnerabilities = context.getEnrichment(WPSCAN_CORE_ENRICHMENT) as
+    WpscanVulnerability[] | undefined;
+  if (coreVersion && coreVulnerabilities) {
+    // WordPress core isn't a slug-keyed component like a plugin/theme, but
+    // deriveVulnerabilityFindings' CVE-applicability logic (confidence caps
+    // severity, confirmed-vs-potential wording) applies identically — a
+    // single-entry component/record pair reuses it instead of duplicating it.
+    findings.push(
+      ...deriveVulnerabilityFindings(
+        [{ slug: CORE_VULNERABILITY_KEY, version: coreVersion }],
+        { [CORE_VULNERABILITY_KEY]: coreVulnerabilities },
+        'finding.core.vulnerability',
       ),
     );
   }

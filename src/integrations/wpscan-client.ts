@@ -79,6 +79,26 @@ export class WpscanClient {
     return this.getVulnerabilities('themes', slug);
   }
 
+  /**
+   * WordPress core, unlike plugins/themes, isn't looked up by slug — verified
+   * live against the real API: `GET /wordpresses/{version-with-dots-removed}`
+   * (e.g. "6.5.4" -> "654"), and the response is keyed by the canonical
+   * dotted version string, not by the numeric key that was requested. Same
+   * "not found" (HTTP 404) and wire shape as plugins/themes otherwise.
+   */
+  async getCoreVulnerabilities(version: string): Promise<Result<WpscanVulnerability[], Error>> {
+    const token = this.config.WPSCAN_API_TOKEN;
+    if (!this.config.wpscanEnabled || !token) {
+      return ok([]);
+    }
+
+    const versionKey = version.replace(/\./g, '');
+    const cacheKey = buildCacheKey('wpscan', 'core', versionKey, 'latest');
+    return withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
+      withRetry(() => this.fetchCoreOnce(versionKey, token)),
+    );
+  }
+
   private async getVulnerabilities(
     kind: ComponentKind,
     slug: string,
@@ -118,5 +138,25 @@ export class WpscanClient {
 
     const parsed = rawComponentResponseSchema.parse(JSON.parse(response.body));
     return parsed[slug]?.vulnerabilities ?? [];
+  }
+
+  private async fetchCoreOnce(versionKey: string, token: string): Promise<WpscanVulnerability[]> {
+    const url = `${WPSCAN_API_BASE}/wordpresses/${encodeURIComponent(versionKey)}`;
+    const options: HttpClientOptions = {
+      ...this.httpClientOptions,
+      headers: { Authorization: `Token token=${token}` },
+    };
+    const response = await this.httpClient.fetchUrl(url, options);
+
+    if (response.status === 404) {
+      return [];
+    }
+    if (response.status !== 200) {
+      throw new Error(`WPScan API responded with status ${response.status}`);
+    }
+
+    const parsed = rawComponentResponseSchema.parse(JSON.parse(response.body));
+    const [entry] = Object.values(parsed);
+    return entry?.vulnerabilities ?? [];
   }
 }

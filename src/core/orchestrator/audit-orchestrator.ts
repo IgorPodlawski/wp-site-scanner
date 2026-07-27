@@ -8,6 +8,7 @@ import type {
   AuditStatus,
   AuditContext,
   Finding,
+  VersionInfo,
 } from '../types/index.js';
 import type { AuditRequest } from './audit-request.js';
 import type { AppConfig } from '../../config/types.js';
@@ -26,6 +27,7 @@ import {
   WORDPRESS_ORG_CORE_ENRICHMENT,
   WPSCAN_PLUGIN_ENRICHMENT,
   WPSCAN_THEME_ENRICHMENT,
+  WPSCAN_CORE_ENRICHMENT,
   PAGESPEED_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
 import { calculateScores } from '../../analysis/scoring-engine.js';
@@ -135,6 +137,7 @@ export class AuditOrchestrator {
         this.enrichCore(context),
         this.enrichPluginVulnerabilities(context),
         this.enrichThemeVulnerabilities(context),
+        this.enrichCoreVulnerabilities(context),
         this.enrichPerformance(context),
       ]);
       limitations.push(...enrichmentLimitations.filter((l): l is string => l !== undefined));
@@ -316,6 +319,25 @@ export class AuditOrchestrator {
       WPSCAN_THEME_ENRICHMENT,
       'wpscan theme vulnerability',
     );
+  }
+
+  /** Same audit-only/token gating as the plugin/theme WPScan lookups above. */
+  private async enrichCoreVulnerabilities(context: AuditContext): Promise<string | undefined> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+
+    const coreVersion = this.getScannerData<{ version: VersionInfo | undefined }>(
+      context,
+      'core-version-scanner',
+    )?.version;
+    if (!coreVersion) return undefined;
+
+    const result = await this.wpscanClient.getCoreVulnerabilities(coreVersion.value);
+    if (!result.ok) {
+      this.logger.warn({ error: result.error.message }, 'wpscan core vulnerability lookup failed');
+      return 'wpscan core vulnerability lookup failed';
+    }
+    context.setEnrichment(WPSCAN_CORE_ENRICHMENT, result.value);
+    return undefined;
   }
 
   /**

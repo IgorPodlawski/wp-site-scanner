@@ -44,6 +44,7 @@ function fakeWpscanClient(overrides: Partial<WpscanClient> = {}): WpscanClient {
   return {
     getPluginVulnerabilities: async () => ok([]),
     getThemeVulnerabilities: async () => ok([]),
+    getCoreVulnerabilities: async () => ok([]),
     ...overrides,
   } as unknown as WpscanClient;
 }
@@ -396,6 +397,90 @@ describe('AuditOrchestrator.run', () => {
       confidence: 'confirmed',
       recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
     });
+  });
+
+  it('queries WPScan for WordPress core in audit mode and asserts a confirmed core vulnerability finding', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const coreVersionScanner = fakeScanner('core-version-scanner', {
+      run: async () => ({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      }),
+    });
+    const wpscanClient = fakeWpscanClient({
+      getCoreVulnerabilities: async (version: string) =>
+        version === '6.5.4'
+          ? ok([{ id: '1', title: 'Contributor+ Stored XSS', fixedIn: '6.5.5', references: [] }])
+          : ok([]),
+    });
+    const orchestrator = new AuditOrchestrator(
+      [detector, coreVersionScanner],
+      { ...TEST_CONFIG, wpscanEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      wpscanClient,
+      NO_OP_PAGESPEED_CLIENT,
+    );
+
+    const result = await orchestrator.run({
+      ...PROSPECT_REQUEST,
+      requestedMode: 'audit',
+      consent: { confirmed: true, source: 'cli-flag' },
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      category: 'security',
+      severity: 'critical',
+      confidence: 'confirmed',
+      recommendationKey: 'finding.core.vulnerability.confirmed.recommendation',
+    });
+  });
+
+  it('never queries WPScan for WordPress core in prospect mode, even when the token is configured', async () => {
+    const detector = fakeScanner('wordpress-detector', {
+      run: async (context) => {
+        context.setDetectedWordPress(true);
+        return { scannerName: 'wordpress-detector', status: 'ok', durationMs: 0 };
+      },
+    });
+    const coreVersionScanner = fakeScanner('core-version-scanner', {
+      run: async () => ({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      }),
+    });
+    const wpscanClient = fakeWpscanClient({
+      getCoreVulnerabilities: async () => {
+        throw new Error('WPScan must not be queried for core in prospect mode');
+      },
+    });
+    const orchestrator = new AuditOrchestrator(
+      [detector, coreVersionScanner],
+      { ...TEST_CONFIG, wpscanEnabled: true },
+      FAKE_LOGGER,
+      NO_OP_WORDPRESS_ORG_CLIENT,
+      wpscanClient,
+      NO_OP_PAGESPEED_CLIENT,
+    );
+
+    const result = await orchestrator.run(PROSPECT_REQUEST);
+
+    expect(result.status).toBe('completed');
+    expect(result.findings).toEqual([]);
   });
 
   it('enriches performance via PageSpeed (prospect-safe) and emits a poor-performance finding', async () => {

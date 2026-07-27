@@ -4,6 +4,8 @@ import {
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
+  WPSCAN_PLUGIN_ENRICHMENT,
+  WPSCAN_CORE_ENRICHMENT,
 } from '@analysis/finding-engine.js';
 import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import type { ScannerResult } from '@core/types/index.js';
@@ -351,6 +353,139 @@ describe('generateFindings', () => {
     });
   });
 
+  describe('plugin vulnerabilities', () => {
+    it('asserts a confirmed vulnerability as critical, with the CVE id appended to the title', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'sitepress-multilingual-cms',
+              version: { value: '4.6.11', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'sitepress-multilingual-cms': [
+          {
+            id: 'abc-123',
+            title: 'WPML Multilingual CMS < 4.6.13 - Contributor+ RCE',
+            fixedIn: '4.6.13',
+            references: ['CVE-2024-1234', 'https://wpscan.com/vulnerability/abc-123'],
+          },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'security',
+        severity: 'critical',
+        confidence: 'confirmed',
+        recommendationKey: 'finding.plugin.vulnerability.confirmed.recommendation',
+      });
+      // recommendationParams must carry {{slug}} — the recommendation message interpolates it
+      expect(findings[0]!.recommendationParams).toEqual({ slug: 'sitepress-multilingual-cms' });
+      expect(findings[0]!.evidence[0]!.params).toEqual({
+        slug: 'sitepress-multilingual-cms',
+        installed: '4.6.11',
+        title: 'WPML Multilingual CMS < 4.6.13 - Contributor+ RCE (CVE-2024-1234)',
+      });
+    });
+
+    it('does not append anything to the title when WPScan assigned no CVE id', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [
+          {
+            id: 'no-cve',
+            title: 'Akismet - Some Issue',
+            references: ['https://wpscan.com/vulnerability/no-cve'],
+          },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]!.evidence[0]!.params).toMatchObject({ title: 'Akismet - Some Issue' });
+    });
+
+    it('caps severity via confidence when the installed version is only corroborated, not confirmed', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'wordpress-seo',
+              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'corroborated' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'wordpress-seo': [
+          {
+            id: 'seo-1',
+            title: 'Yoast SEO < 26.9 - Contributor+ Stored XSS',
+            fixedIn: '26.9',
+            references: [],
+          },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]).toMatchObject({
+        severity: 'high',
+        confidence: 'corroborated',
+        recommendationKey: 'finding.plugin.vulnerability.potential.recommendation',
+      });
+    });
+
+    it('does not flag a vulnerability the installed version has already moved past', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.7', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [{ id: 'old-1', title: 'Old fixed issue', fixedIn: '5.5', references: [] }],
+      });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
   describe('outdated themes', () => {
     it('flags a theme older than the wordpress.org latest', () => {
       const context = createContext();
@@ -488,6 +623,83 @@ describe('generateFindings', () => {
         durationMs: 0,
       });
       context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, { '7.0.2': 'latest' });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('core vulnerabilities', () => {
+    it('asserts a confirmed core vulnerability as critical, with the CVE id appended to the title', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        {
+          id: 'core-1',
+          title: 'WordPress < 6.5.5 - Contributor+ Stored XSS',
+          fixedIn: '6.5.5',
+          references: ['CVE-2024-9999'],
+        },
+      ]);
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'security',
+        severity: 'critical',
+        confidence: 'confirmed',
+        recommendationKey: 'finding.core.vulnerability.confirmed.recommendation',
+      });
+      expect(findings[0]!.evidence[0]!.params).toEqual({
+        slug: 'wordpress-core',
+        installed: '6.5.4',
+        title: 'WordPress < 6.5.5 - Contributor+ Stored XSS (CVE-2024-9999)',
+      });
+    });
+
+    it('caps severity via confidence when the core version is only inferred', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.4', sources: ['asset-query-string'], confidence: 'inferred' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        { id: 'core-1', title: 'Some core issue', fixedIn: '6.5.5', references: [] },
+      ]);
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]).toMatchObject({
+        severity: 'medium',
+        confidence: 'inferred',
+        recommendationKey: 'finding.core.vulnerability.potential.recommendation',
+      });
+    });
+
+    it('does not flag a core vulnerability the installed version has already moved past', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.5.5', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        { id: 'core-1', title: 'Old fixed issue', fixedIn: '6.5.5', references: [] },
+      ]);
 
       expect(generateFindings(context)).toEqual([]);
     });

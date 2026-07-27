@@ -28,6 +28,10 @@
   "report.value.no": "Nie",
 
   "report.section.scores": "Wyniki",
+  "report.scores.scaleNote": "Każdy wynik jest w skali 0-100, gdzie 100 to najlepszy możliwy wynik.",
+  "report.scoreBand.good": "Dobry",
+  "report.scoreBand.fair": "Wymaga uwagi",
+  "report.scoreBand.poor": "Słaby",
   "report.section.insights": "Najważniejsze wnioski",
   "report.section.findings": "Ustalenia",
   "report.section.plugins": "Wykryte wtyczki",
@@ -103,6 +107,11 @@
   "finding.theme.vulnerability.confirmed.recommendation": "Zaktualizuj motyw {{slug}} natychmiast — aktualnie zainstalowana wersja ma potwierdzoną znaną podatność.",
   "finding.theme.vulnerability.potential.evidence": "Motyw {{slug}} (wykryta wersja {{installed}}) może być narażony na publicznie znaną podatność: {{title}}.",
   "finding.theme.vulnerability.potential.recommendation": "Zweryfikuj zainstalowaną wersję motywu {{slug}} i zaktualizuj go, jeśli odpowiada znanemu zakresowi podatności.",
+
+  "finding.core.vulnerability.confirmed.evidence": "Rdzeń WordPressa (potwierdzona wersja {{installed}}) ma publicznie znaną podatność: {{title}}.",
+  "finding.core.vulnerability.confirmed.recommendation": "Zaktualizuj rdzeń WordPressa natychmiast — aktualnie zainstalowana wersja ma potwierdzoną znaną podatność.",
+  "finding.core.vulnerability.potential.evidence": "Rdzeń WordPressa (wykryta wersja {{installed}}) może być narażony na publicznie znaną podatność: {{title}}.",
+  "finding.core.vulnerability.potential.recommendation": "Zweryfikuj zainstalowaną wersję rdzenia WordPressa i zaktualizuj ją, jeśli odpowiada znanemu zakresowi podatności.",
 
   "finding.performance.poor.evidence": "Wynik wydajności mobilnej PageSpeed tej strony to {{score}} na 100 (Google Lighthouse) — Google klasyfikuje to jako słaby.",
   "finding.performance.poor.recommendation": "Zbadaj i popraw wydajność ładowania strony na urządzeniach mobilnych — słaby wynik może szkodzić zarówno doświadczeniu użytkownika, jak i pozycji w wyszukiwarce.",

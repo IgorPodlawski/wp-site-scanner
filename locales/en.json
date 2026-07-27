@@ -28,6 +28,10 @@
   "report.value.no": "No",
 
   "report.section.scores": "Scores",
+  "report.scores.scaleNote": "Each score is on a 0-100 scale, where 100 is best.",
+  "report.scoreBand.good": "Good",
+  "report.scoreBand.fair": "Needs improvement",
+  "report.scoreBand.poor": "Poor",
   "report.section.insights": "Key Takeaways",
   "report.section.findings": "Findings",
   "report.section.plugins": "Detected Plugins",
@@ -103,6 +107,11 @@
   "finding.theme.vulnerability.confirmed.recommendation": "Update the {{slug}} theme immediately — the currently installed version has a confirmed known vulnerability.",
   "finding.theme.vulnerability.potential.evidence": "The {{slug}} theme (detected version {{installed}}) may be affected by a publicly known vulnerability: {{title}}.",
   "finding.theme.vulnerability.potential.recommendation": "Verify the installed version of the {{slug}} theme and update it if it matches a known-vulnerable range.",
+
+  "finding.core.vulnerability.confirmed.evidence": "WordPress core (confirmed version {{installed}}) has a publicly known vulnerability: {{title}}.",
+  "finding.core.vulnerability.confirmed.recommendation": "Update WordPress core immediately — the currently installed version has a confirmed known vulnerability.",
+  "finding.core.vulnerability.potential.evidence": "WordPress core (detected version {{installed}}) may be affected by a publicly known vulnerability: {{title}}.",
+  "finding.core.vulnerability.potential.recommendation": "Verify the installed WordPress core version and update it if it matches a known-vulnerable range.",
 
   "finding.performance.poor.evidence": "This site's mobile PageSpeed performance score is {{score}} out of 100 (Google Lighthouse) — Google classifies this as poor.",
   "finding.performance.poor.recommendation": "Investigate and improve mobile page load performance — a poor score can hurt both user experience and search ranking.",

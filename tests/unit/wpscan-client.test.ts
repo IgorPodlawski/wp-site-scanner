@@ -168,3 +168,78 @@ describe('WpscanClient.getThemeVulnerabilities', () => {
     expect(result).toEqual({ ok: true, value: [] });
   });
 });
+
+describe('WpscanClient.getCoreVulnerabilities', () => {
+  it('requests the dots-stripped version and maps the response, which is keyed by the dotted version', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async (url) => {
+        expect(url).toBe('https://wpscan.com/api/v3/wordpresses/654');
+        return jsonResponse(200, {
+          '6.5.4': {
+            vulnerabilities: [
+              {
+                id: 'abc',
+                title: 'WordPress < 6.5.5 - Contributor+ Stored XSS',
+                fixed_in: '6.5.5',
+                references: { url: ['https://wordpress.org/news/2024/06/wordpress-6-5-5/'] },
+              },
+            ],
+          },
+        });
+      },
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getCoreVulnerabilities('6.5.4');
+
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 'abc',
+          title: 'WordPress < 6.5.5 - Contributor+ Stored XSS',
+          fixedIn: '6.5.5',
+          references: ['https://wordpress.org/news/2024/06/wordpress-6-5-5/'],
+        },
+      ],
+    });
+  });
+
+  it('returns ok([]) — not an error — on a 404 (version unknown to WPScan)', async () => {
+    const httpClient: HttpClient = { fetchUrl: async () => jsonResponse(404, {}) };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getCoreVulnerabilities('9999.0');
+
+    expect(result).toEqual({ ok: true, value: [] });
+  });
+
+  it('returns ok([]) immediately without any HTTP call when WPScan is disabled', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        throw new Error('should not be called when disabled');
+      },
+    };
+    const client = new WpscanClient(DISABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const result = await client.getCoreVulnerabilities('6.5.4');
+
+    expect(result).toEqual({ ok: true, value: [] });
+  });
+
+  it('caches the result so a second call for the same version does not refetch', async () => {
+    let callCount = 0;
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        callCount += 1;
+        return jsonResponse(200, { '6.5.4': { vulnerabilities: [] } });
+      },
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    await client.getCoreVulnerabilities('6.5.4');
+    await client.getCoreVulnerabilities('6.5.4');
+
+    expect(callCount).toBe(1);
+  });
+});

@@ -87,9 +87,36 @@ describe('renderHtml', () => {
 
     const html = await renderHtml(result, 'en');
 
-    expect(html).toContain('88');
+    expect(html).toContain('88/100');
     expect(html).toContain('This audit identified 1 issue(s)');
     expect(html).toContain('tls-scanner failed: handshake failed');
+  });
+
+  describe('score readability', () => {
+    it('shows a 0-100 scale note and a good/fair/poor badge next to every score', async () => {
+      const result = baseResult({
+        scores: {
+          categories: [
+            { category: 'security', value: 30, deductions: [] },
+            { category: 'maintenance', value: 70, deductions: [] },
+            { category: 'performance', value: 95, deductions: [] },
+            { category: 'seo', value: 100, deductions: [] },
+            { category: 'infrastructure', value: 100, deductions: [] },
+          ],
+          overall: 30,
+        },
+      });
+
+      const html = await renderHtml(result, 'en');
+
+      expect(html).toContain('Each score is on a 0-100 scale');
+      expect(html).toContain('30/100');
+      expect(html).toContain('class="badge score-poor"');
+      expect(html).toContain('70/100');
+      expect(html).toContain('class="badge score-fair"');
+      expect(html).toContain('95/100');
+      expect(html).toContain('class="badge score-good"');
+    });
   });
 
   it('includes the consent artifact and audit-mode disclaimer when present', async () => {
