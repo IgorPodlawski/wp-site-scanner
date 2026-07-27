@@ -47,11 +47,11 @@ export class FileCacheStore implements CacheStore {
 
 /** Backs `--no-cache`: always a miss, never persists — every enrichment lookup hits the real API fresh. */
 export class NoopCacheStore implements CacheStore {
-  async get<T>(): Promise<T | undefined> {
+  async get<T>(_key: string): Promise<T | undefined> {
     return undefined;
   }
 
-  async set(): Promise<void> {
+  async set<T>(_key: string, _value: T, _ttlMs: number): Promise<void> {
     // intentionally does nothing
   }
 }
