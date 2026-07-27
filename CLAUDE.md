@@ -256,11 +256,11 @@ Future:
 
 - `GET https://wpscan.com/api/v3/plugins/{slug}` / `.../themes/{slug}`, header `Authorization: Token token=<WPSCAN_API_TOKEN>`.
 - Unknown slug → **HTTP 404** with `{"status":"...", "is_error":true}` (opposite convention from WordPress.org's plugin API!) — treated as "no known vulnerabilities," not a failure.
-- Response is keyed by the slug: `{"<slug>": {"vulnerabilities": [...], ...}}`. Each vulnerability's `id` is a UUID **string**, not a number. `fixed_in` may be `null`/absent (no patch released yet — treat as still-affected). `references` is an object (`{url: [...], cve: [...]}`), not a flat array — the client flattens it to `["CVE-...", ...urls]` to match the internal `WpscanVulnerability` shape.
+- Response is keyed by the slug: `{"<slug>": {"vulnerabilities": [...], ...}}`. Each vulnerability's `id` is a UUID **string**, not a number. `fixed_in` may be `null`/absent (no patch released yet — treat as still-affected). `references` is an object (`{url: [...], cve: [...]}`), not a flat array — the client flattens it to `["CVE-...", ...urls]` to match the internal `WpscanVulnerability` shape. `vuln_type` and `description` are wired through as-is (`vulnType`/`description`); `cvss`, when populated, is expected to be `{score, vector, rating}` per WPScan's public docs, but **this exact populated shape is not verified live** — every real vulnerability sampled during development had `cvss: null` — so `cvssScore` is extracted defensively (`z.unknown()` + a manual numeric check) and degrades to "no CVSS" rather than throwing if the assumption is wrong. Re-verify against a populated example if this is touched again.
 - Free tier is rate-limited (~100 requests/day); this is a real constraint for batch runs — lean on the 7-day cache.
 - **Audit-mode only** (see "What each mode may touch" above) — enforced in `AuditOrchestrator`, not in the client itself. The client's own `wpscanEnabled` check only covers "is a token configured," so don't rely on it alone for the authorization-mode boundary.
-- **WordPress core vulnerabilities** — `WpscanClient.getCoreVulnerabilities(version)`, verified live against the real API. Core is looked up differently from plugins/themes: `GET /wordpresses/{version-with-dots-stripped}` (e.g. `"6.5.4"` → `"654"`), and — unlike the plugin/theme endpoints — **the response is keyed by the canonical dotted version string, not by the numeric key that was sent**; the client reads `Object.values(parsed)[0]` rather than indexing by the request key. Same 404-means-"no known vulnerabilities" and wire shape otherwise. Wired into `finding-engine.ts` by passing a single synthetic `{slug: 'wordpress-core', version}` through the _same_ `deriveVulnerabilityFindings` used for plugins/themes — the CVE-applicability rule and confidence-capping apply identically, so this reuses that logic rather than duplicating it. The `finding.core.vulnerability.*` i18n keys deliberately don't reference `{{slug}}` (unlike the plugin/theme equivalents), since "wordpress-core" is an internal dict key, never user-facing text.
-- **CVE ids in evidence text**: when WPScan's `references` includes one or more `CVE-...` entries, `finding-engine.ts`'s `formatVulnerabilityTitle()` appends them to the displayed vulnerability title in parentheses (e.g. `"... Stored XSS (CVE-2024-6386)"`) — applies to plugin, theme, and core vulnerability findings alike, since they all flow through `deriveVulnerabilityFindings`. Not every WPScan entry has an assigned CVE; when none is present the title is shown unchanged.
+- **WordPress core vulnerabilities** — `WpscanClient.getCoreVulnerabilities(version)`, verified live against the real API. Core is looked up differently from plugins/themes: `GET /wordpresses/{version-with-dots-stripped}` (e.g. `"6.5.4"` → `"654"`), and — unlike the plugin/theme endpoints — **the response is keyed by the canonical dotted version string, not by the numeric key that was sent**; the client reads `Object.values(parsed)[0]` rather than indexing by the request key. Same 404-means-"no known vulnerabilities" and wire shape otherwise. Wired into `finding-engine.ts` by passing a single synthetic `{kind: 'core', slug: 'wordpress-core', version}` through the _same_ `assembleComponentFinding` used for plugins/themes (see "Component findings" above) — reused rather than duplicated. The `finding.component.core.*`/`finding.componentVulnerability.core.*` i18n keys deliberately don't reference `{{slug}}` (unlike the plugin/theme equivalents), since "wordpress-core" is an internal dict key, never user-facing text.
+- **CVE ids in evidence text**: when WPScan's `references` includes one or more `CVE-...` entries, `finding-engine.ts`'s `formatVulnerabilityTitle()` appends them to the displayed vulnerability title in parentheses (e.g. `"... Stored XSS (CVE-2024-6386)"`) — applies to plugin, theme, and core vulnerability findings alike, since they all flow through `assembleComponentFinding`. Not every WPScan entry has an assigned CVE; when none is present the title is shown unchanged.
 
 **PageSpeed** — implemented in `src/integrations/pagespeed-client.ts`, verified against the live API (a real `PAGESPEED_API_KEY` was available during development). Notes:
 
@@ -332,24 +332,38 @@ Every finding contains:
 - `businessImpact` — `none | weak | medium | strong`
 - `recommendation`
 - `evidence` — the concrete observation(s) supporting it
+- `component` (optional) — present only on a merged WordPress core/plugin/theme finding: `{ kind, slug, isOutdated, vulnerabilitySeverities }` (see "Component findings" below)
 
-**Confidence caps severity (hard rule):**
+**Severity comes from the vulnerability's own data — confidence never adjusts it.** There is no confidence-caps-severity mechanism (removed; a prior version of this rule capped a `critical` CVE down to `medium` purely because the installed version was only `inferred`, which mixed up two unrelated questions). Resolution order (`analysis/vulnerability-severity.ts`'s `resolveVulnerabilitySeverity`, backed by `analysis/cvss-severity.ts`'s fixed CVSS table):
 
-- `inferred` → severity may not exceed `medium`
-- `corroborated` → may not exceed `high`
-- only `confirmed` may be `critical`
+1. CVSS base score, mapped via the fixed table: `9.0–10.0 → critical`, `7.0–8.9 → high`, `4.0–6.9 → medium`, `0.1–3.9 → low`, `0 → info`.
+2. A WPScan-provided severity string, if present (not currently exposed by the real WPScan v3 API — verified live — but the fallback chain is built for it regardless).
+3. `medium`, if neither is available. Never invented beyond this.
 
-This is the mechanical implementation of "false positives are worse than misses." It is not optional.
+Confidence still matters, just for two different things: it scales the deduction in scoring (see below) and it selects report wording — `confirmed` (version confirmed **and** the vulnerability is applicable) → "has a known vulnerability"; anything less → "may be affected by a known vulnerability." Never mark a version `confirmed` off a bare `?ver=` alone (unchanged rule, enforced in `analysis/version-confidence.ts`).
 
-**CVE assertion rule:** a vulnerability is asserted as _applicable_ only when the component version is `confirmed` **and** falls inside the affected range (`affected_version < fixed_in`). Otherwise emit it as **"potentially affected"** with reduced severity. Never present a CVE as confirmed off an `inferred` version. Implemented in `analysis/finding-engine.ts`'s `deriveVulnerabilityFindings`/`isAffectedByVulnerability`: the requested severity is always `critical`, and the existing confidence-caps-severity mechanism (not a separate branch) is what actually produces the "reduced severity" for anything short of confirmed-and-in-range — only the message wording (confirmed vs. potential) is chosen explicitly.
+**Applicability (independent of confidence):** a vulnerability is included for a component only when the detected version falls inside the affected range (`installed < fixed_in`, or no fix published yet) — `analysis/finding-engine.ts`'s `isAffectedByVulnerability`. This gate decides inclusion and the confirmed/potential wording; it never touches severity.
+
+**Component findings — one per component, not one per vulnerability.** `analysis/finding-engine.ts`'s `assembleComponentFinding` merges a component's outdated-status and its deduplicated (`analysis/vulnerability-dedup.ts`), applicable vulnerabilities into a single Finding — never a separate "outdated" finding plus a separate finding per vulnerability for the same underlying problem. The finding's `severity` is the max across its applicable vulnerabilities' resolved severities; with zero vulnerabilities but an outdated version, it's a fixed `medium` `maintenance` finding (unchanged from before). A component flagged only by wordpress.org's coarse "insecure" status (no itemized WPScan data for it) is `maintenance`/`medium` like any other outdated-only component — the distinction still shows up in the evidence text, just not in severity, since there's no vulnerability-level data to derive a severity from.
 
 ---
 
 # Scoring
 
-Categories: Security, Maintenance, Performance, SEO, Infrastructure, Overall.
+Categories: Security, Maintenance, Performance, SEO, Infrastructure, Overall. Each starts at 100.
 
-Start each at 100. Reduce per finding as a function of `severity × confidence` (lower confidence → smaller deduction). No invented mathematical complexity — scoring only prioritizes. Keep the deduction table explicit and in one place (`analysis/scoring-engine.ts`'s `DEDUCTION_TABLE`), so it is reviewable and testable. `overall` is not an average of the categories — it's reduced by every finding regardless of category, so it reflects total risk while the per-category breakdown shows where it concentrates.
+`analysis/scoring-engine.ts` keeps two small, explicit tables (not a single 2D lookup, since confidence and severity now play genuinely different roles):
+
+- `BASE_PENALTY` by severity: `critical 30, high 18, medium 8, low 3, info 0`.
+- `CONFIDENCE_WEIGHT` by confidence: `confirmed 1.0, corroborated 0.8, inferred 0.5`.
+
+A plain (non-component) finding deducts `round(BASE_PENALTY[severity] * CONFIDENCE_WEIGHT[confidence])`.
+
+A **component finding** with ≥1 vulnerability aggregates instead of using its own single severity directly: sort each applicable vulnerability's base penalty descending, take 100% of the worst plus 25% of each of the rest, then apply the component's confidence weight to that sum — finally capped at a hard **30**, regardless of how many vulnerabilities the component has. Because this cap applies identically wherever the deduction is added (the finding's own category, and `overall`), no single component can ever reduce any one score by more than 30 — this is what guarantees `overall` can't be driven below 70 by one component alone; it isn't a separate clamp.
+
+`overall` is not an average of the categories — every finding (component or plain) reduces it regardless of category, so it reflects total risk while the per-category breakdown shows where it concentrates. Every category and `overall` are clamped at 0.
+
+**Report counters** (`analysis/finding-engine.ts`'s `calculateReportCounters`, attached to `AuditResult.counters`): `componentsWithVulnerabilities`, `uniqueVulnerabilityCount` (deduplicated — CVE → WPScan id → normalized title — across every component, not just within one, so the same CVE affecting two components still counts once), `outdatedComponentCount`, `findingsBySeverity`. Not routed through `AuditContext` — `getScoreSummary()`/`getInsights()` are already write-only/never-read there (see the AuditContext vs AuditResult section), so counters go straight onto `AuditResult` instead of extending that dead pattern.
 
 ---
 
