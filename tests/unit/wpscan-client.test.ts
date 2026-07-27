@@ -153,6 +153,64 @@ describe('WpscanClient.getPluginVulnerabilities', () => {
   });
 });
 
+describe('WpscanClient rate-limit circuit breaker', () => {
+  it('stops making HTTP calls for the rest of this run after the first 429, real or verified live (dozens of remaining lookups no longer each trigger a WPScan notification email)', async () => {
+    let callCount = 0;
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        callCount += 1;
+        return jsonResponse(429, { status: 'rate limit hit' });
+      },
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const first = await client.getPluginVulnerabilities('akismet');
+    expect(first.ok).toBe(false);
+    const callsAfterFirstLookup = callCount;
+    expect(callsAfterFirstLookup).toBe(2); // withRetry's one retry, both 429
+
+    // Simulate the remaining ~63 slugs a --profile deep audit-mode run would
+    // otherwise probe — none of these should reach the network at all.
+    for (let i = 0; i < 20; i += 1) {
+      const result = await client.getPluginVulnerabilities(`plugin-${i}`);
+      expect(result.ok).toBe(false);
+    }
+
+    expect(callCount).toBe(callsAfterFirstLookup);
+  });
+
+  it('shares the breaker across plugin/theme/core lookups — a 429 on one kind stops all of them', async () => {
+    let callCount = 0;
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        callCount += 1;
+        return jsonResponse(429, { status: 'rate limit hit' });
+      },
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    await client.getCoreVulnerabilities('6.5.4');
+    const callsAfterCore = callCount;
+
+    await client.getPluginVulnerabilities('akismet');
+    await client.getThemeVulnerabilities('astra');
+
+    expect(callCount).toBe(callsAfterCore);
+  });
+
+  it('never caches a rate-limited response as if it were a real result', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => jsonResponse(429, { status: 'rate limit hit' }),
+    };
+    const cache = inMemoryCache();
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, cache);
+
+    await client.getPluginVulnerabilities('akismet');
+
+    expect(await cache.get('wpscan:plugins:akismet:latest')).toBeUndefined();
+  });
+});
+
 describe('WpscanClient.getThemeVulnerabilities', () => {
   it('fetches from the themes endpoint', async () => {
     const httpClient: HttpClient = {

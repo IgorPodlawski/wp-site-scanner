@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { HttpClient, HttpClientOptions } from '../core/http/http-client.js';
 import type { CacheStore } from '../storage/cache-store.js';
 import { buildCacheKey } from '../storage/cache-key.js';
-import { ok, type Result } from '../utils/result.js';
+import { ok, err, type Result } from '../utils/result.js';
 import { withRetry } from '../utils/retry.js';
 import { withCache } from '../utils/cache-helper.js';
 import type { AppConfig } from '../config/types.js';
@@ -11,6 +11,17 @@ import type { WpscanVulnerability } from './enrichment-types.js';
 const WPSCAN_API_BASE = 'https://wpscan.com/api/v3';
 
 type ComponentKind = 'plugins' | 'themes';
+
+/**
+ * Distinguished from a generic failure so the client can trip its
+ * in-run circuit breaker (see `rateLimited` below) instead of treating
+ * this the same as a transient network error worth retrying per-slug.
+ */
+class WpscanRateLimitError extends Error {
+  constructor() {
+    super('WPScan API rate limit reached (HTTP 429)');
+  }
+}
 
 /**
  * WPScan's `cvss` field, when populated, is an object shaped roughly like
@@ -88,6 +99,18 @@ const rawComponentResponseSchema = z.record(
 export class WpscanClient {
   static readonly CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+  /**
+   * Tripped for the rest of this client's lifetime (one audit run — a
+   * fresh WpscanClient is constructed per CLI invocation) the first time
+   * WPScan responds 429. Without this, a `--profile deep` audit-mode run
+   * probing dozens of plugin/theme slugs plus core would keep hitting the
+   * real API for every remaining slug even after the daily quota was
+   * confirmed exhausted — verified live: each of those hits also triggers
+   * a "Daily API Limit Reached" notification email from WPScan itself, so
+   * one exhausted run without this breaker means dozens of emails, not one.
+   */
+  private rateLimited = false;
+
   constructor(
     private readonly config: Pick<AppConfig, 'WPSCAN_API_TOKEN' | 'wpscanEnabled'>,
     private readonly httpClient: HttpClient,
@@ -115,12 +138,17 @@ export class WpscanClient {
     if (!this.config.wpscanEnabled || !token) {
       return ok([]);
     }
+    if (this.rateLimited) {
+      return err(new WpscanRateLimitError());
+    }
 
     const versionKey = version.replace(/\./g, '');
     const cacheKey = buildCacheKey('wpscan', 'core', versionKey, 'latest');
-    return withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
+    const result = await withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
       withRetry(() => this.fetchCoreOnce(versionKey, token)),
     );
+    this.tripBreakerIfRateLimited(result);
+    return result;
   }
 
   private async getVulnerabilities(
@@ -131,11 +159,22 @@ export class WpscanClient {
     if (!this.config.wpscanEnabled || !token) {
       return ok([]);
     }
+    if (this.rateLimited) {
+      return err(new WpscanRateLimitError());
+    }
 
     const cacheKey = buildCacheKey('wpscan', kind, slug, 'latest');
-    return withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
+    const result = await withCache(this.cache, cacheKey, WpscanClient.CACHE_TTL_MS, () =>
       withRetry(() => this.fetchOnce(kind, slug, token)),
     );
+    this.tripBreakerIfRateLimited(result);
+    return result;
+  }
+
+  private tripBreakerIfRateLimited(result: Result<unknown, Error>): void {
+    if (!result.ok && result.error instanceof WpscanRateLimitError) {
+      this.rateLimited = true;
+    }
   }
 
   private async fetchOnce(
@@ -156,6 +195,9 @@ export class WpscanClient {
     if (response.status === 404) {
       return [];
     }
+    if (response.status === 429) {
+      throw new WpscanRateLimitError();
+    }
     if (response.status !== 200) {
       throw new Error(`WPScan API responded with status ${response.status}`);
     }
@@ -174,6 +216,9 @@ export class WpscanClient {
 
     if (response.status === 404) {
       return [];
+    }
+    if (response.status === 429) {
+      throw new WpscanRateLimitError();
     }
     if (response.status !== 200) {
       throw new Error(`WPScan API responded with status ${response.status}`);
