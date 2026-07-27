@@ -1,0 +1,14 @@
+[
+  {
+    "id": "f5e8c9d4-0000-0000-0000-000000000001",
+    "title": "Yoast SEO < 26.9 - Contributor+ Stored XSS",
+    "fixedIn": "26.9",
+    "references": ["CVE-2026-1293"]
+  },
+  {
+    "id": "f5e8c9d4-0000-0000-0000-000000000002",
+    "title": "Yoast SEO < 27.2 - Contributor+ Stored XSS via 'jsonText' Block Attribute",
+    "fixedIn": "27.2",
+    "references": ["CVE-2026-3427"]
+  }
+]

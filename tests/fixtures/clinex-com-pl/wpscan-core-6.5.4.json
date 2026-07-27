@@ -1,0 +1,32 @@
+[
+  {
+    "id": "2c63f136-4c1f-4093-9a8c-5e51f19eae28",
+    "title": "WordPress < 6.5.5 - Contributor+ Stored XSS in HTML API",
+    "fixedIn": "6.5.5",
+    "references": []
+  },
+  {
+    "id": "b1a4e5f0-0000-0000-0000-000000000001",
+    "title": "WordPress < 6.5.5 - Contributor+ Stored XSS in Template-Part Block",
+    "fixedIn": "6.5.5",
+    "references": []
+  },
+  {
+    "id": "b1a4e5f0-0000-0000-0000-000000000002",
+    "title": "WordPress < 6.5.5 - Contributor+ Path Traversal in Template-Part Block",
+    "fixedIn": "6.5.5",
+    "references": []
+  },
+  {
+    "id": "c2b5f6a1-0000-0000-0000-000000000003",
+    "title": "WP < 6.8.3 - Author+ DOM Stored XSS",
+    "fixedIn": "6.5.7",
+    "references": ["CVE-2025-58674"]
+  },
+  {
+    "id": "c2b5f6a1-0000-0000-0000-000000000004",
+    "title": "WP < 6.8.3 - Contributor+ Sensitive Data Disclosure",
+    "fixedIn": "6.5.7",
+    "references": ["CVE-2025-58246"]
+  }
+]
