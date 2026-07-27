@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AuditResult,
+  ComponentFindingInfo,
   Finding,
   FindingSeverity,
   Insight,
@@ -206,6 +207,13 @@ function renderVulnerabilityCard(
   );
 }
 
+/** A component finding covers a whole plugin/theme/(WordPress core) — a heading up front says which one before diving into version info and vulnerabilities, instead of that identity only ever appearing buried in the first evidence sentence. */
+function renderComponentHeading(t: Translate, component: ComponentFindingInfo): string {
+  const kindLabel = text(t, `report.component.kind.${component.kind}`);
+  const title = component.kind === 'core' ? kindLabel : `${kindLabel}: ${escapeHtml(component.slug)}`;
+  return `<h3 class="finding-title">${title}</h3>`;
+}
+
 function renderFindingsSection(findings: readonly Finding[], t: Translate): string {
   if (findings.length === 0) {
     return `<h2>${text(t, 'report.section.findings')}</h2><p class="empty-state">${text(t, 'report.findings.empty')}</p>`;
@@ -214,6 +222,7 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
   const sorted = [...findings].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
   const cards = sorted
     .map((finding) => {
+      const heading = finding.component ? renderComponentHeading(t, finding.component) : '';
       const evidence = finding.evidence
         .map((e) => {
           const sentence = text(t, e.descriptionKey, e.params);
@@ -230,6 +239,7 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
         `<div class="finding">` +
         `<span class="badge ${badgeClass}">${text(t, `report.severity.${finding.severity}`)}</span> ` +
         `<span class="finding-meta">${meta}</span>` +
+        heading +
         evidence +
         `<p class="finding-recommendation">${text(t, finding.recommendationKey, finding.recommendationParams)}</p>` +
         `</div>`

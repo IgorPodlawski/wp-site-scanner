@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderHtml } from '@reports/html-report.js';
 import { createFinding } from '@core/types/finding.js';
 import { buildTarget } from '@core/types/target.js';
-import type { AuditResult } from '@core/types/index.js';
+import type { AuditResult, ComponentFindingInfo, Finding } from '@core/types/index.js';
 
 function baseResult(overrides: Partial<AuditResult> = {}): AuditResult {
   return {
@@ -304,6 +304,80 @@ describe('renderHtml', () => {
       expect(html).not.toContain('CVSS:');
       expect(html).not.toContain('Fixed in:');
       expect(html).not.toContain('References:');
+    });
+  });
+
+  describe('component heading', () => {
+    function componentFinding(component: ComponentFindingInfo): Finding {
+      return createFinding({
+        id: 'f1',
+        category: 'maintenance',
+        confidence: 'corroborated',
+        severity: 'medium',
+        sourceLayer: 'third-party',
+        businessImpact: 'medium',
+        recommendationKey: 'finding.component.plugin.outdated.recommendation',
+        recommendationParams: { slug: component.slug },
+        evidence: [],
+        component,
+      });
+    }
+
+    it('renders a "Plugin: {slug}" heading for a plugin finding', async () => {
+      const finding = componentFinding({
+        kind: 'plugin',
+        slug: 'akismet',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).toContain('<h3 class="finding-title">Plugin: akismet</h3>');
+    });
+
+    it('renders a "Theme: {slug}" heading for a theme finding', async () => {
+      const finding = componentFinding({
+        kind: 'theme',
+        slug: 'astra',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).toContain('<h3 class="finding-title">Theme: astra</h3>');
+    });
+
+    it('renders a plain "WordPress Core" heading (no slug) for a core finding', async () => {
+      const finding = componentFinding({
+        kind: 'core',
+        slug: 'wordpress-core',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).toContain('<h3 class="finding-title">WordPress Core</h3>');
+      expect(html).not.toContain('WordPress Core: wordpress-core');
+    });
+
+    it('omits the heading entirely for a non-component finding', async () => {
+      const finding = createFinding({
+        id: 'f1',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'low',
+        sourceLayer: 1,
+        businessImpact: 'weak',
+        recommendationKey: 'finding.header.missingHsts.recommendation',
+        evidence: [{ descriptionKey: 'finding.header.missingHsts.evidence' }],
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).not.toContain('class="finding-title"');
     });
   });
 });

@@ -56,6 +56,9 @@
 
   "report.component.entry": "{{slug}} — version {{version}}",
   "report.component.versionUnknown": "unknown",
+  "report.component.kind.plugin": "Plugin",
+  "report.component.kind.theme": "Theme",
+  "report.component.kind.core": "WordPress Core",
 
   "report.vulnerability.cvss": "CVSS",
   "report.vulnerability.type": "Type",
