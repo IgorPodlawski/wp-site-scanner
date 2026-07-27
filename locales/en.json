@@ -111,12 +111,12 @@
   "finding.component.core.outdated.recommendation": "Update WordPress core to the latest version to receive bug fixes and security patches.",
   "finding.component.core.vulnerable.recommendation": "Update WordPress core as soon as possible — see the listed vulnerabilities below for details.",
 
-  "finding.componentVulnerability.plugin.confirmed.evidence": "The {{slug}} plugin has a confirmed known vulnerability: {{title}}.",
-  "finding.componentVulnerability.plugin.potential.evidence": "The {{slug}} plugin may be affected by a known vulnerability: {{title}}.",
-  "finding.componentVulnerability.theme.confirmed.evidence": "The {{slug}} theme has a confirmed known vulnerability: {{title}}.",
-  "finding.componentVulnerability.theme.potential.evidence": "The {{slug}} theme may be affected by a known vulnerability: {{title}}.",
-  "finding.componentVulnerability.core.confirmed.evidence": "WordPress core has a confirmed known vulnerability: {{title}}.",
-  "finding.componentVulnerability.core.potential.evidence": "WordPress core may be affected by a known vulnerability: {{title}}.",
+  "finding.componentVulnerability.plugin.confirmed.evidence": "{{title}} — confirmed vulnerability.",
+  "finding.componentVulnerability.plugin.potential.evidence": "{{title}} — potential vulnerability.",
+  "finding.componentVulnerability.theme.confirmed.evidence": "{{title}} — confirmed vulnerability.",
+  "finding.componentVulnerability.theme.potential.evidence": "{{title}} — potential vulnerability.",
+  "finding.componentVulnerability.core.confirmed.evidence": "{{title}} — confirmed vulnerability.",
+  "finding.componentVulnerability.core.potential.evidence": "{{title}} — potential vulnerability.",
 
   "finding.performance.poor.evidence": "This site's mobile PageSpeed performance score is {{score}} out of 100 (Google Lighthouse) — Google classifies this as poor.",
   "finding.performance.poor.recommendation": "Investigate and improve mobile page load performance — a poor score can hurt both user experience and search ranking.",

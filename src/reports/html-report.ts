@@ -140,17 +140,40 @@ function renderInsightsSection(insights: readonly Insight[], t: Translate): stri
 
 const VULNERABILITY_EVIDENCE_PREFIX = 'finding.componentVulnerability.';
 
+/** Turns an already-real WPScan reference into a clickable link (shown by hostname, not the full raw URL, to avoid ugly wrapping) — a bare "CVE-..." identifier is left as plain text, never turned into a synthesized lookup URL we didn't get from the data itself. */
+function renderReference(ref: string): string {
+  if (!/^https?:\/\//i.test(ref)) {
+    return escapeHtml(ref);
+  }
+  let label = ref;
+  try {
+    label = new URL(ref).hostname;
+  } catch {
+    // Malformed URL from the API — fall back to showing it as-is rather than guessing.
+  }
+  return `<a href="${escapeHtml(ref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
 /**
- * The one sentence built from evidence.params (title, already including the
- * CVE if WPScan assigned one) only covers part of what a vulnerability
- * evidence entry carries. The rest — CVSS, severity, vulnerability type,
- * fixed-in version, description, references — comes straight from
- * evidence.raw (the full WpscanVulnerability), never re-derived or guessed.
- * Severity is recomputed here (not read off Finding.component, which only
- * holds the aggregate list) — cheap and pure, and avoids needing to
- * correlate two parallel arrays by position.
+ * One visually self-contained card per vulnerability — previously each
+ * vulnerability's sentence, meta line, description, and references ran
+ * together as loose paragraphs with nothing separating one vulnerability
+ * from the next, which made a component with several vulnerabilities read
+ * as an undifferentiated wall of text. `sentence` is the already-
+ * translated+escaped evidence text (just the title now — see the
+ * shortened finding.componentVulnerability.* strings); everything else —
+ * CVSS, severity, vulnerability type, fixed-in version, description,
+ * references — comes straight from evidence.raw (the full
+ * WpscanVulnerability), never re-derived or guessed. Severity is
+ * recomputed here (not read off Finding.component, which only holds the
+ * aggregate list) — cheap and pure, and avoids correlating two parallel
+ * arrays by position.
  */
-function renderVulnerabilityDetails(t: Translate, vulnerability: WpscanVulnerability): string {
+function renderVulnerabilityCard(
+  t: Translate,
+  sentence: string,
+  vulnerability: WpscanVulnerability,
+): string {
   const severity = resolveVulnerabilitySeverity(vulnerability);
   const metaParts = [
     `<span class="badge severity-${severity}">${text(t, `report.severity.${severity}`)}</span>`,
@@ -170,10 +193,17 @@ function renderVulnerabilityDetails(t: Translate, vulnerability: WpscanVulnerabi
     : '';
   const references =
     vulnerability.references.length > 0
-      ? `<p class="vulnerability-references">${text(t, 'report.vulnerability.references')}: ${vulnerability.references.map((ref) => escapeHtml(ref)).join(', ')}</p>`
+      ? `<p class="vulnerability-references">${text(t, 'report.vulnerability.references')}: ${vulnerability.references.map(renderReference).join(', ')}</p>`
       : '';
 
-  return `<p class="vulnerability-meta">${metaParts.join(' · ')}</p>${description}${references}`;
+  return (
+    `<div class="vulnerability-card">` +
+    `<p class="vulnerability-title">${sentence}</p>` +
+    `<p class="vulnerability-meta">${metaParts.join(' · ')}</p>` +
+    description +
+    references +
+    `</div>`
+  );
 }
 
 function renderFindingsSection(findings: readonly Finding[], t: Translate): string {
@@ -186,11 +216,11 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
     .map((finding) => {
       const evidence = finding.evidence
         .map((e) => {
-          const sentence = `<p class="finding-evidence">${text(t, e.descriptionKey, e.params)}</p>`;
+          const sentence = text(t, e.descriptionKey, e.params);
           if (e.descriptionKey.startsWith(VULNERABILITY_EVIDENCE_PREFIX) && e.raw) {
-            return sentence + renderVulnerabilityDetails(t, e.raw as WpscanVulnerability);
+            return renderVulnerabilityCard(t, sentence, e.raw as WpscanVulnerability);
           }
-          return sentence;
+          return `<p class="finding-evidence">${sentence}</p>`;
         })
         .join('');
       const meta = `${text(t, `score.category.${finding.category}`)} · ${text(t, `report.severity.${finding.severity}`)} · ${text(t, `report.confidence.${finding.confidence}`)}`;

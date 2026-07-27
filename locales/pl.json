@@ -111,12 +111,12 @@
   "finding.component.core.outdated.recommendation": "Zaktualizuj rdzeń WordPressa do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
   "finding.component.core.vulnerable.recommendation": "Zaktualizuj rdzeń WordPressa najszybciej jak możliwe — szczegóły w wypisanych poniżej podatnościach.",
 
-  "finding.componentVulnerability.plugin.confirmed.evidence": "Wtyczka {{slug}} ma potwierdzoną znaną podatność: {{title}}.",
-  "finding.componentVulnerability.plugin.potential.evidence": "Wtyczka {{slug}} może być narażona na znaną podatność: {{title}}.",
-  "finding.componentVulnerability.theme.confirmed.evidence": "Motyw {{slug}} ma potwierdzoną znaną podatność: {{title}}.",
-  "finding.componentVulnerability.theme.potential.evidence": "Motyw {{slug}} może być narażony na znaną podatność: {{title}}.",
-  "finding.componentVulnerability.core.confirmed.evidence": "Rdzeń WordPressa ma potwierdzoną znaną podatność: {{title}}.",
-  "finding.componentVulnerability.core.potential.evidence": "Rdzeń WordPressa może być narażony na znaną podatność: {{title}}.",
+  "finding.componentVulnerability.plugin.confirmed.evidence": "{{title}} — potwierdzona podatność.",
+  "finding.componentVulnerability.plugin.potential.evidence": "{{title}} — potencjalna podatność.",
+  "finding.componentVulnerability.theme.confirmed.evidence": "{{title}} — potwierdzona podatność.",
+  "finding.componentVulnerability.theme.potential.evidence": "{{title}} — potencjalna podatność.",
+  "finding.componentVulnerability.core.confirmed.evidence": "{{title}} — potwierdzona podatność.",
+  "finding.componentVulnerability.core.potential.evidence": "{{title}} — potencjalna podatność.",
 
   "finding.performance.poor.evidence": "Wynik wydajności mobilnej PageSpeed tej strony to {{score}} na 100 (Google Lighthouse) — Google klasyfikuje to jako słaby.",
   "finding.performance.poor.recommendation": "Zbadaj i popraw wydajność ładowania strony na urządzeniach mobilnych — słaby wynik może szkodzić zarówno doświadczeniu użytkownika, jak i pozycji w wyszukiwarce.",

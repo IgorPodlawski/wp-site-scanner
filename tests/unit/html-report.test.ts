@@ -260,8 +260,19 @@ describe('renderHtml', () => {
       expect(html).toContain('Fixed in: 5.1');
       expect(html).toContain('A stored XSS in the admin panel.');
       expect(html).toContain('References:');
-      expect(html).toContain('https://example.com/advisory');
       expect(html).toContain('class="badge severity-critical"');
+      // Each vulnerability is its own visually distinct card, not a loose paragraph.
+      expect(html).toContain('class="vulnerability-card"');
+      // The evidence sentence no longer repeats "The {{slug}} plugin ..." — the
+      // component's identity is already stated once via the versionInfo line.
+      expect(html).toContain('Some Vuln (CVE-2024-1234) — confirmed vulnerability.');
+      expect(html).not.toContain('The akismet plugin');
+      // A real http(s) reference becomes a clickable link, shown by hostname
+      // rather than the full raw URL (which wraps badly).
+      expect(html).toContain('<a href="https://example.com/advisory"');
+      expect(html).toContain('>example.com</a>');
+      // A bare CVE identifier (not a URL) stays plain text, never turned into a synthesized lookup link.
+      expect(html).not.toContain('<a href="CVE-2024-1234"');
     });
 
     it('omits CVSS/type/fixed-in/description/references lines when the data is absent, without fabricating placeholders', async () => {
