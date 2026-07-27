@@ -111,6 +111,21 @@ export class WpscanClient {
    */
   private rateLimited = false;
 
+  /**
+   * Callers fire plugin/theme (and core) lookups concurrently — both
+   * within `enrichBySlug`'s `Promise.all` over every detected plugin, and
+   * across the orchestrator's own top-level `Promise.all` of every
+   * enrichment kind. Without serializing here, the entire first "wave" of
+   * concurrent calls each checks `rateLimited` (still false) and each
+   * fires its own real HTTP request before any of their responses come
+   * back to trip the breaker — verified live: 5+ plugins all still hit
+   * WPScan for real, and all still email, in that first wave alone. Every
+   * call is queued through this so only one is ever actually in flight,
+   * which is what lets the breaker take effect starting from the very
+   * next queued call.
+   */
+  private queue: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly config: Pick<AppConfig, 'WPSCAN_API_TOKEN' | 'wpscanEnabled'>,
     private readonly httpClient: HttpClient,
@@ -138,6 +153,13 @@ export class WpscanClient {
     if (!this.config.wpscanEnabled || !token) {
       return ok([]);
     }
+    return this.enqueue(() => this.getCoreVulnerabilitiesSerial(version, token));
+  }
+
+  private async getCoreVulnerabilitiesSerial(
+    version: string,
+    token: string,
+  ): Promise<Result<WpscanVulnerability[], Error>> {
     if (this.rateLimited) {
       return err(new WpscanRateLimitError());
     }
@@ -159,6 +181,14 @@ export class WpscanClient {
     if (!this.config.wpscanEnabled || !token) {
       return ok([]);
     }
+    return this.enqueue(() => this.getVulnerabilitiesSerial(kind, slug, token));
+  }
+
+  private async getVulnerabilitiesSerial(
+    kind: ComponentKind,
+    slug: string,
+    token: string,
+  ): Promise<Result<WpscanVulnerability[], Error>> {
     if (this.rateLimited) {
       return err(new WpscanRateLimitError());
     }
@@ -175,6 +205,16 @@ export class WpscanClient {
     if (!result.ok && result.error instanceof WpscanRateLimitError) {
       this.rateLimited = true;
     }
+  }
+
+  /** Chains `task` after every previously-enqueued task has settled (success or failure), so calls that arrive concurrently still only ever run one at a time. */
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task);
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   private async fetchOnce(

@@ -198,6 +198,27 @@ describe('WpscanClient rate-limit circuit breaker', () => {
     expect(callCount).toBe(callsAfterCore);
   });
 
+  it('serializes concurrent calls fired via Promise.all — the real bug: enrichBySlug fires every plugin lookup concurrently, so a naive boolean flag checked before any response arrives lets the whole first wave through to the real API', async () => {
+    let callCount = 0;
+    const httpClient: HttpClient = {
+      fetchUrl: async () => {
+        callCount += 1;
+        return jsonResponse(429, { status: 'rate limit hit' });
+      },
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const slugs = Array.from({ length: 10 }, (_, i) => `plugin-${i}`);
+    const results = await Promise.all(slugs.map((slug) => client.getPluginVulnerabilities(slug)));
+
+    expect(results.every((r) => !r.ok)).toBe(true);
+    // Only the first call to actually run reaches the network (plus its one
+    // retry) — every other one of the 10, even though all 10 were fired at
+    // the same instant via Promise.all, must be queued behind it and see
+    // the tripped breaker before making a request of their own.
+    expect(callCount).toBe(2);
+  });
+
   it('never caches a rate-limited response as if it were a real result', async () => {
     const httpClient: HttpClient = {
       fetchUrl: async () => jsonResponse(429, { status: 'rate limit hit' }),
