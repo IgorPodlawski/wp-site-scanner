@@ -16,6 +16,9 @@
   "report.summary.wordpress": "Wykryto WordPress",
   "report.summary.coreVersion": "Wersja rdzenia WordPress",
   "report.summary.coreVersionUnknown": "Nie wykryto",
+  "report.summary.componentsWithVulnerabilities": "Komponenty z podatnościami",
+  "report.summary.uniqueVulnerabilities": "Unikalne znane podatności",
+  "report.summary.outdatedComponents": "Nieaktualne komponenty",
   "report.summary.startedAt": "Rozpoczęto",
   "report.summary.finishedAt": "Zakończono",
 
@@ -53,6 +56,11 @@
 
   "report.component.entry": "{{slug}} — wersja {{version}}",
   "report.component.versionUnknown": "nieznana",
+
+  "report.vulnerability.cvss": "CVSS",
+  "report.vulnerability.type": "Typ",
+  "report.vulnerability.fixedIn": "Poprawiono w",
+  "report.vulnerability.references": "Referencje",
 
   "report.consent.title": "Zapis autoryzacji",
   "report.consent.domain": "Domena",

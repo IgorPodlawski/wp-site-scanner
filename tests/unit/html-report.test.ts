@@ -190,4 +190,109 @@ describe('renderHtml', () => {
       expect(html).not.toContain('WordPress core version');
     });
   });
+
+  describe('report counters', () => {
+    it('renders the three counter rows when counters are present', async () => {
+      const result = baseResult({
+        counters: {
+          componentsWithVulnerabilities: 2,
+          uniqueVulnerabilityCount: 5,
+          outdatedComponentCount: 3,
+          findingsBySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
+        },
+      });
+
+      const html = await renderHtml(result, 'en');
+
+      expect(html).toContain('Components with known vulnerabilities');
+      expect(html).toContain('Unique known vulnerabilities');
+      expect(html).toContain('Outdated components');
+      expect(html).toContain('>5<');
+      expect(html).toContain('>2<');
+      expect(html).toContain('>3<');
+    });
+
+    it('omits the counter rows when counters are absent', async () => {
+      const html = await renderHtml(baseResult(), 'en');
+
+      expect(html).not.toContain('Unique known vulnerabilities');
+    });
+  });
+
+  describe('component vulnerability evidence', () => {
+    it('renders CVSS, type, fixed-in, description, and references from evidence.raw', async () => {
+      const finding = createFinding({
+        id: 'f1',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'critical',
+        sourceLayer: 'third-party',
+        businessImpact: 'strong',
+        recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+        recommendationParams: { slug: 'akismet' },
+        evidence: [
+          {
+            descriptionKey: 'finding.componentVulnerability.plugin.confirmed.evidence',
+            params: { slug: 'akismet', title: 'Some Vuln (CVE-2024-1234)' },
+            raw: {
+              id: 'v1',
+              title: 'Some Vuln',
+              fixedIn: '5.1',
+              cvssScore: 9.8,
+              vulnType: 'XSS',
+              description: 'A stored XSS in the admin panel.',
+              references: ['CVE-2024-1234', 'https://example.com/advisory'],
+            },
+          },
+        ],
+        component: {
+          kind: 'plugin',
+          slug: 'akismet',
+          isOutdated: false,
+          vulnerabilitySeverities: ['critical'],
+        },
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).toContain('CVSS: 9.8');
+      expect(html).toContain('Type: XSS');
+      expect(html).toContain('Fixed in: 5.1');
+      expect(html).toContain('A stored XSS in the admin panel.');
+      expect(html).toContain('References:');
+      expect(html).toContain('https://example.com/advisory');
+      expect(html).toContain('class="badge severity-critical"');
+    });
+
+    it('omits CVSS/type/fixed-in/description/references lines when the data is absent, without fabricating placeholders', async () => {
+      const finding = createFinding({
+        id: 'f1',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'medium',
+        sourceLayer: 'third-party',
+        businessImpact: 'strong',
+        recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+        evidence: [
+          {
+            descriptionKey: 'finding.componentVulnerability.plugin.confirmed.evidence',
+            params: { slug: 'akismet', title: 'Some Vuln' },
+            raw: { id: 'v1', title: 'Some Vuln', references: [] },
+          },
+        ],
+        component: {
+          kind: 'plugin',
+          slug: 'akismet',
+          isOutdated: false,
+          vulnerabilitySeverities: ['medium'],
+        },
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).not.toContain('CVSS:');
+      expect(html).not.toContain('Fixed in:');
+      expect(html).not.toContain('References:');
+    });
+  });
 });

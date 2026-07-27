@@ -16,6 +16,9 @@
   "report.summary.wordpress": "WordPress detected",
   "report.summary.coreVersion": "WordPress core version",
   "report.summary.coreVersionUnknown": "Not detected",
+  "report.summary.componentsWithVulnerabilities": "Components with known vulnerabilities",
+  "report.summary.uniqueVulnerabilities": "Unique known vulnerabilities",
+  "report.summary.outdatedComponents": "Outdated components",
   "report.summary.startedAt": "Started",
   "report.summary.finishedAt": "Finished",
 
@@ -53,6 +56,11 @@
 
   "report.component.entry": "{{slug}} — version {{version}}",
   "report.component.versionUnknown": "unknown",
+
+  "report.vulnerability.cvss": "CVSS",
+  "report.vulnerability.type": "Type",
+  "report.vulnerability.fixedIn": "Fixed in",
+  "report.vulnerability.references": "References",
 
   "report.consent.title": "Authorization record",
   "report.consent.domain": "Domain",

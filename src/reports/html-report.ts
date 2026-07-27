@@ -11,11 +11,13 @@ import type {
 } from '../core/types/index.js';
 import { getScannerData } from '../core/types/scanner.js';
 import { getScoreBand } from '../analysis/score-band.js';
+import { resolveVulnerabilitySeverity } from '../analysis/vulnerability-severity.js';
 import type { Locale, LocaleMessages } from '../i18n/types.js';
 import { loadLocale } from '../i18n/loader.js';
 import { interpolate } from '../i18n/translate.js';
 import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../scanners/theme-scanner.js';
+import type { WpscanVulnerability } from '../integrations/enrichment-types.js';
 
 const TEMPLATE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'templates/report.html');
 
@@ -81,6 +83,22 @@ function renderSummarySection(result: AuditResult, t: Translate): string {
           [string, string]
         >)
       : []),
+    ...(result.isWordPress && result.counters
+      ? ([
+          [
+            text(t, 'report.summary.componentsWithVulnerabilities'),
+            String(result.counters.componentsWithVulnerabilities),
+          ],
+          [
+            text(t, 'report.summary.uniqueVulnerabilities'),
+            String(result.counters.uniqueVulnerabilityCount),
+          ],
+          [
+            text(t, 'report.summary.outdatedComponents'),
+            String(result.counters.outdatedComponentCount),
+          ],
+        ] as Array<[string, string]>)
+      : []),
     [text(t, 'report.summary.startedAt'), escapeHtml(result.startedAt)],
     [text(t, 'report.summary.finishedAt'), escapeHtml(result.finishedAt)],
   ];
@@ -120,6 +138,44 @@ function renderInsightsSection(insights: readonly Insight[], t: Translate): stri
   return `<h2>${text(t, 'report.section.insights')}</h2>${items}`;
 }
 
+const VULNERABILITY_EVIDENCE_PREFIX = 'finding.componentVulnerability.';
+
+/**
+ * The one sentence built from evidence.params (title, already including the
+ * CVE if WPScan assigned one) only covers part of what a vulnerability
+ * evidence entry carries. The rest — CVSS, severity, vulnerability type,
+ * fixed-in version, description, references — comes straight from
+ * evidence.raw (the full WpscanVulnerability), never re-derived or guessed.
+ * Severity is recomputed here (not read off Finding.component, which only
+ * holds the aggregate list) — cheap and pure, and avoids needing to
+ * correlate two parallel arrays by position.
+ */
+function renderVulnerabilityDetails(t: Translate, vulnerability: WpscanVulnerability): string {
+  const severity = resolveVulnerabilitySeverity(vulnerability);
+  const metaParts = [
+    `<span class="badge severity-${severity}">${text(t, `report.severity.${severity}`)}</span>`,
+    vulnerability.cvssScore !== undefined
+      ? `${text(t, 'report.vulnerability.cvss')}: ${escapeHtml(String(vulnerability.cvssScore))}`
+      : undefined,
+    vulnerability.vulnType
+      ? `${text(t, 'report.vulnerability.type')}: ${escapeHtml(vulnerability.vulnType)}`
+      : undefined,
+    vulnerability.fixedIn
+      ? `${text(t, 'report.vulnerability.fixedIn')}: ${escapeHtml(vulnerability.fixedIn)}`
+      : undefined,
+  ].filter((part): part is string => part !== undefined);
+
+  const description = vulnerability.description
+    ? `<p class="vulnerability-description">${escapeHtml(vulnerability.description)}</p>`
+    : '';
+  const references =
+    vulnerability.references.length > 0
+      ? `<p class="vulnerability-references">${text(t, 'report.vulnerability.references')}: ${vulnerability.references.map((ref) => escapeHtml(ref)).join(', ')}</p>`
+      : '';
+
+  return `<p class="vulnerability-meta">${metaParts.join(' · ')}</p>${description}${references}`;
+}
+
 function renderFindingsSection(findings: readonly Finding[], t: Translate): string {
   if (findings.length === 0) {
     return `<h2>${text(t, 'report.section.findings')}</h2><p class="empty-state">${text(t, 'report.findings.empty')}</p>`;
@@ -129,7 +185,13 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
   const cards = sorted
     .map((finding) => {
       const evidence = finding.evidence
-        .map((e) => `<p class="finding-evidence">${text(t, e.descriptionKey, e.params)}</p>`)
+        .map((e) => {
+          const sentence = `<p class="finding-evidence">${text(t, e.descriptionKey, e.params)}</p>`;
+          if (e.descriptionKey.startsWith(VULNERABILITY_EVIDENCE_PREFIX) && e.raw) {
+            return sentence + renderVulnerabilityDetails(t, e.raw as WpscanVulnerability);
+          }
+          return sentence;
+        })
         .join('');
       const meta = `${text(t, `score.category.${finding.category}`)} · ${text(t, `report.severity.${finding.severity}`)} · ${text(t, `report.confidence.${finding.confidence}`)}`;
       const badgeClass = `severity-${finding.severity}`;
