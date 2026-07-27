@@ -243,6 +243,28 @@ function maxSeverity(severities: readonly FindingSeverity[]): FindingSeverity {
   );
 }
 
+/**
+ * A component with several distinct known vulnerabilities is a worse
+ * situation than one with a single vulnerability of the same severity, or
+ * one that's merely outdated with no known vulnerability at all — but
+ * today the finding's displayed severity was just the max, so e.g. 4
+ * separate medium-severity CVEs looked identical to "just outdated"
+ * (both 'medium'). Bumped by exactly one tier when there are 2+ applicable
+ * vulnerabilities, capped at 'high' — never 'critical' from count alone,
+ * matching the rule that only a real CVSS >= 9.0 can reach 'critical'.
+ * Scoring is unaffected: scoring-engine.ts reads the raw
+ * `vulnerabilitySeverities` list directly, never this escalated label.
+ */
+function escalateForMultipleVulnerabilities(
+  severities: readonly FindingSeverity[],
+): FindingSeverity {
+  const max = maxSeverity(severities);
+  if (severities.length < 2) return max;
+  const maxIndex = SEVERITY_ORDER.indexOf(max);
+  const highIndex = SEVERITY_ORDER.indexOf('high');
+  return maxIndex >= highIndex ? max : SEVERITY_ORDER[maxIndex + 1]!;
+}
+
 type ComponentKind = 'core' | 'plugin' | 'theme';
 
 interface ComponentIdentity {
@@ -292,11 +314,13 @@ function coreOutdatedStatus(
  * into a single result — never a separate "outdated" finding plus separate
  * per-vulnerability findings for the same underlying problem. Severity is
  * the max across applicable vulnerabilities (resolved from their own
- * CVSS/WPScan data, never from version-detection confidence); confidence
- * only ever selects "confirmed"/"potential" wording per vulnerability and
- * feeds scoring's weight (see scoring-engine.ts) — it never adjusts severity.
- * Returns undefined when there is nothing to report (not outdated, no
- * applicable vulnerabilities).
+ * CVSS/WPScan data, never from version-detection confidence), escalated by
+ * one tier (capped at 'high') when there are 2+ of them — see
+ * escalateForMultipleVulnerabilities. Confidence only ever selects
+ * "confirmed"/"potential" wording per vulnerability and feeds scoring's
+ * weight (see scoring-engine.ts) — it never adjusts severity. Returns
+ * undefined when there is nothing to report (not outdated, no applicable
+ * vulnerabilities).
  */
 function assembleComponentFinding(
   component: ComponentIdentity,
@@ -345,7 +369,9 @@ function assembleComponentFinding(
     id: randomUUID(),
     category: hasVulnerabilities ? 'security' : 'maintenance',
     confidence: component.version.confidence,
-    severity: hasVulnerabilities ? maxSeverity(vulnerabilitySeverities) : 'medium',
+    severity: hasVulnerabilities
+      ? escalateForMultipleVulnerabilities(vulnerabilitySeverities)
+      : 'medium',
     sourceLayer: 'third-party',
     businessImpact: hasVulnerabilities ? 'strong' : 'medium',
     recommendationKey: `finding.component.${component.kind}.${hasVulnerabilities ? 'vulnerable' : 'outdated'}.recommendation`,

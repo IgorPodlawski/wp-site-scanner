@@ -860,6 +860,85 @@ describe('generateFindings', () => {
       ]);
     });
 
+    it('escalates severity by one tier when a component has 2+ vulnerabilities, even if each is only medium', () => {
+      // A component with several distinct known vulnerabilities is a worse
+      // situation than one with a single vulnerability of the same severity,
+      // or one that's merely outdated with none at all — this must be
+      // visible in the displayed severity, not just in the score.
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'wordpress-seo',
+              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'wordpress-seo': [
+          { id: 'v1', title: 'XSS #1', fixedIn: '26.9', references: [] },
+          { id: 'v2', title: 'XSS #2', fixedIn: '27.2', references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]!.severity).toBe('high');
+      expect(findings[0]!.component?.vulnerabilitySeverities).toEqual(['medium', 'medium']);
+    });
+
+    it('does not escalate a single vulnerability — one medium-severity CVE stays medium', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'contact-form-7',
+              version: { value: '5.9.6', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'contact-form-7': [{ id: 'v1', title: 'Some issue', fixedIn: '6.0.6', references: [] }],
+      });
+
+      expect(generateFindings(context)[0]!.severity).toBe('medium');
+    });
+
+    it('never escalates past high — two high-severity vulnerabilities do not become critical', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'akismet',
+              version: { value: '5.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        akismet: [
+          { id: 'v1', title: 'RCE #1', fixedIn: '5.1', vulnType: 'RCE', references: [] },
+          { id: 'v2', title: 'RCE #2', fixedIn: '5.1', vulnType: 'RCE', references: [] },
+        ],
+      });
+
+      expect(generateFindings(context)[0]!.severity).toBe('high');
+    });
+
     it('deduplicates vulnerabilities sharing the same CVE before listing them as evidence', () => {
       const context = createContext();
       context.addScannerResult({
