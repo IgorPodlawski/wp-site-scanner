@@ -337,6 +337,16 @@ describe('generateFindings', () => {
         isOutdated: true,
         vulnerabilitySeverities: [],
       });
+      // Regression: the outdatedStatus evidence template interpolates {{slug}} —
+      // it must actually be in params, or the rendered report shows the literal "{{slug}}".
+      const outdatedEvidence = findings[0]!.evidence.find(
+        (e) => e.descriptionKey === 'finding.component.plugin.outdatedStatus.evidence',
+      );
+      expect(outdatedEvidence?.params).toEqual({
+        slug: 'akismet',
+        installed: '5.0',
+        latest: '5.7',
+      });
     });
 
     it('flags nothing when the installed version already matches the latest', () => {

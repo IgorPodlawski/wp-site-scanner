@@ -259,6 +259,7 @@ interface OutdatedStatus {
 
 function pluginOrThemeOutdatedStatus(
   kind: 'plugin' | 'theme',
+  slug: string,
   version: VersionInfo,
   latest: string | undefined,
 ): OutdatedStatus | undefined {
@@ -266,7 +267,7 @@ function pluginOrThemeOutdatedStatus(
   if (compareVersions(version.value, latest) !== -1) return undefined;
   return {
     evidenceKey: `finding.component.${kind}.outdatedStatus.evidence`,
-    params: { installed: version.value, latest },
+    params: { slug, installed: version.value, latest },
   };
 }
 
@@ -426,6 +427,7 @@ export function generateFindings(context: AuditContext): Finding[] {
     if (!plugin.version) continue;
     const outdated = pluginOrThemeOutdatedStatus(
       'plugin',
+      plugin.slug,
       plugin.version,
       pluginEnrichment?.[plugin.slug]?.version,
     );
@@ -446,6 +448,7 @@ export function generateFindings(context: AuditContext): Finding[] {
     if (!theme.version) continue;
     const outdated = pluginOrThemeOutdatedStatus(
       'theme',
+      theme.slug,
       theme.version,
       themeEnrichment?.[theme.slug]?.version,
     );
