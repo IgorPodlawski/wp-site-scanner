@@ -7,7 +7,6 @@
   "cli.history.notImplemented": "History lookup is not yet implemented (planned for Phase 3).",
 
   "report.disclaimer": "This audit is based only on publicly available information.",
-  "report.disclaimer.consent": "This audit was performed under explicit authorization granted on {{timestamp}} for {{domain}}.",
   "report.summary.title": "WordPress Quality Assessment Summary",
   "report.summary.target": "Target",
   "report.summary.mode": "Authorization mode",
@@ -64,11 +63,6 @@
   "report.vulnerability.type": "Type",
   "report.vulnerability.fixedIn": "Fixed in",
   "report.vulnerability.references": "References",
-
-  "report.consent.title": "Authorization record",
-  "report.consent.domain": "Domain",
-  "report.consent.timestamp": "Granted on",
-  "report.consent.note": "Note",
 
   "finding.notWordpress.evidence": "No WordPress signals (generator meta tag, /wp-content/ or /wp-includes/ paths, REST API discovery link) were found on the homepage of {{domain}}.",
   "finding.notWordpress.recommendation": "No further action — this tool only assesses WordPress sites.",

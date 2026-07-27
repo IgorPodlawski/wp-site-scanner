@@ -67,7 +67,7 @@ Before an `audit` run starts, the orchestrator **must** require and persist:
 - timestamp
 - optional operator note
 
-This is stored inside `AuditResult` and printed in the report. Keep it lightweight — the point is an auditable trail that the run was authorized. If the artifact is missing, the audit run **fails fast** with a clear message. Never silently downgrade audit→prospect.
+This is stored inside `AuditResult` (and its JSON output) — **not** rendered in the HTML/PDF report, which is client-facing (deliberate product decision; see "Reports" below). Keep it lightweight — the point is an auditable trail that the run was authorized. If the artifact is missing, the audit run **fails fast** with a clear message. Never silently downgrade audit→prospect.
 
 ## Scanner-level enforcement
 
@@ -399,7 +399,9 @@ Generate: JSON, HTML, PDF.
 
 HTML/PDF contain: summary, scores, findings, detected plugins, detected theme, recommendations, sales insights, limitations.
 
-Always include a disclaimer that the audit is based only on publicly available information, plus (for `audit` runs) the consent artifact. Keep the HTML template PDF-friendly so PDF is a render of the same template, not a separate layout.
+Always include a disclaimer that the audit is based only on publicly available information. Keep the HTML template PDF-friendly so PDF is a render of the same template, not a separate layout.
+
+**The consent artifact is intentionally not rendered in the HTML/PDF report** (deliberate product decision — the report is client-facing). It's still captured and persisted on `AuditResult`/JSON, which is what actually satisfies audit mode's auditable-trail requirement (see "Consent artifact" above) — `renderDisclaimer` in `reports/html-report.ts` no longer branches on `result.consentArtifact` at all, and there is no consent section in the template.
 
 ---
 

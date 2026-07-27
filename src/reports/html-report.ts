@@ -288,25 +288,13 @@ function renderLimitationsSection(limitations: readonly string[], t: Translate):
   return `<h2>${text(t, 'report.section.limitations')}</h2><ul>${items}</ul>`;
 }
 
-function renderConsentSection(result: AuditResult, t: Translate): string {
-  const consent = result.consentArtifact;
-  if (!consent) return '';
-
-  const rows: Array<[string, string]> = [
-    [text(t, 'report.consent.domain'), escapeHtml(consent.targetDomain)],
-    [text(t, 'report.consent.timestamp'), escapeHtml(consent.timestamp)],
-    ...(consent.operatorNote ? [[text(t, 'report.consent.note'), escapeHtml(consent.operatorNote)] as [string, string]] : []),
-  ];
-  return `<h2>${text(t, 'report.consent.title')}</h2>${renderTable(rows)}`;
-}
-
-function renderDisclaimer(result: AuditResult, t: Translate): string {
-  if (result.consentArtifact) {
-    return text(t, 'report.disclaimer.consent', {
-      timestamp: result.consentArtifact.timestamp,
-      domain: result.consentArtifact.targetDomain,
-    });
-  }
+/**
+ * The consent artifact is still captured and persisted on AuditResult/JSON
+ * for audit mode's internal auditable-trail requirement (see CLAUDE.md's
+ * "Consent artifact" section) — deliberately just not surfaced in the
+ * human-readable report itself (client-facing decision).
+ */
+function renderDisclaimer(t: Translate): string {
   return text(t, 'report.disclaimer');
 }
 
@@ -336,8 +324,7 @@ export async function renderHtml(result: AuditResult, lang: Locale): Promise<str
     PLUGINS_SECTION: renderPluginsSection(result, t),
     THEME_SECTION: renderThemeSection(result, t),
     LIMITATIONS_SECTION: renderLimitationsSection(result.limitations, t),
-    CONSENT_SECTION: renderConsentSection(result, t),
-    DISCLAIMER: renderDisclaimer(result, t),
+    DISCLAIMER: renderDisclaimer(t),
   };
 
   return Object.entries(replacements).reduce(

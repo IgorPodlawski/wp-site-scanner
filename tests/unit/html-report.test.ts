@@ -119,21 +119,30 @@ describe('renderHtml', () => {
     });
   });
 
-  it('includes the consent artifact and audit-mode disclaimer when present', async () => {
+  it('does not render the consent artifact in the report, even when present on AuditResult', async () => {
+    // Deliberate: the consent artifact is still captured and persisted on
+    // AuditResult/JSON for audit mode's internal auditable-trail requirement
+    // (see CLAUDE.md's "Consent artifact" section) — just not surfaced in
+    // the human-readable report itself (client-facing decision).
     const result = baseResult({
       authorizationMode: 'audit',
       consentArtifact: {
         targetDomain: 'example.com',
         confirmed: true,
-        timestamp: '2026-01-01T00:00:00.000Z',
+        timestamp: '2025-06-15T12:34:56.000Z',
+        operatorNote: 'Approved by the client via email',
         source: 'cli-flag',
       },
     });
 
     const html = await renderHtml(result, 'en');
 
-    expect(html).toContain('Authorization record');
-    expect(html).toContain('explicit authorization granted');
+    expect(html).not.toContain('Authorization record');
+    expect(html).not.toContain('explicit authorization granted');
+    expect(html).not.toContain('2025-06-15T12:34:56.000Z');
+    expect(html).not.toContain('Approved by the client via email');
+    // The plain disclaimer is still shown, regardless of authorization mode.
+    expect(html).toContain('This audit is based only on publicly available information.');
   });
 
   describe('core version visibility', () => {
