@@ -5,6 +5,7 @@ import type { ScannerResult } from './scanner.js';
 import type { Finding } from './finding.js';
 import type { Insight } from './insight.js';
 import type { ScoreSummary } from './score.js';
+import type { ReportCounters } from './report-counters.js';
 import type { AuditStatus } from './audit-context.js';
 
 /**
@@ -26,6 +27,7 @@ export interface AuditResult {
   readonly findings: readonly Finding[];
   readonly insights: readonly Insight[];
   readonly scores?: ScoreSummary;
+  readonly counters?: ReportCounters;
   /** e.g. "PageSpeed enrichment unavailable" — surfaced in the report's limitations section. */
   readonly limitations: string[];
 }

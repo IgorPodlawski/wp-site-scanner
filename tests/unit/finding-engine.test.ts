@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateFindings,
+  calculateReportCounters,
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
   WPSCAN_PLUGIN_ENRICHMENT,
   WPSCAN_CORE_ENRICHMENT,
 } from '@analysis/finding-engine.js';
+import { createFinding } from '@core/types/finding.js';
 import type { DefaultAuditContext } from '@core/types/audit-context.js';
-import type { ScannerResult } from '@core/types/index.js';
+import type { Finding, ScannerResult } from '@core/types/index.js';
 import type { HeaderScannerData } from '@scanners/header-scanner.js';
 import type { TlsProbeResult } from '@core/http/tls-probe.js';
 import type { EndpointScannerData } from '@scanners/endpoint-scanner.js';
@@ -878,5 +880,122 @@ describe('generateFindings', () => {
       expect(vulnEvidenceCount).toBe(1);
       expect(findings[0]!.component?.vulnerabilitySeverities).toHaveLength(1);
     });
+  });
+});
+
+describe('calculateReportCounters', () => {
+  function vulnEvidence(id: string, title: string, references: string[] = []) {
+    return {
+      descriptionKey: 'finding.componentVulnerability.plugin.confirmed.evidence',
+      params: { slug: 'x', title },
+      raw: { id, title, references },
+    };
+  }
+
+  it('counts components with vulnerabilities, unique vulnerabilities (deduped across components), outdated components, and findings by severity', () => {
+    const pluginFinding = createFinding({
+      id: 'f1',
+      category: 'security',
+      confidence: 'confirmed',
+      severity: 'critical',
+      sourceLayer: 'third-party',
+      businessImpact: 'strong',
+      recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+      evidence: [vulnEvidence('v1', 'Vuln A', ['CVE-2024-1111']), vulnEvidence('v2', 'Vuln B')],
+      component: {
+        kind: 'plugin',
+        slug: 'akismet',
+        isOutdated: false,
+        vulnerabilitySeverities: ['critical', 'medium'],
+      },
+    });
+    // Shares CVE-2024-1111 with the plugin's Vuln A — must collapse to one in the unique count.
+    const coreFinding = createFinding({
+      id: 'f2',
+      category: 'security',
+      confidence: 'confirmed',
+      severity: 'high',
+      sourceLayer: 'third-party',
+      businessImpact: 'strong',
+      recommendationKey: 'finding.component.core.vulnerable.recommendation',
+      evidence: [vulnEvidence('v3', 'Vuln A (core)', ['CVE-2024-1111'])],
+      component: {
+        kind: 'core',
+        slug: 'wordpress-core',
+        isOutdated: false,
+        vulnerabilitySeverities: ['high'],
+      },
+    });
+    const themeFinding = createFinding({
+      id: 'f3',
+      category: 'maintenance',
+      confidence: 'corroborated',
+      severity: 'medium',
+      sourceLayer: 'third-party',
+      businessImpact: 'medium',
+      recommendationKey: 'finding.component.theme.outdated.recommendation',
+      evidence: [],
+      component: {
+        kind: 'theme',
+        slug: 'twentytwentyfour',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      },
+    });
+    const headerFinding = createFinding({
+      id: 'f4',
+      category: 'security',
+      confidence: 'confirmed',
+      severity: 'low',
+      sourceLayer: 1,
+      businessImpact: 'weak',
+      recommendationKey: 'finding.header.missingHsts.recommendation',
+      evidence: [],
+    });
+
+    const counters = calculateReportCounters([
+      pluginFinding,
+      coreFinding,
+      themeFinding,
+      headerFinding,
+    ]);
+
+    expect(counters).toEqual({
+      componentsWithVulnerabilities: 2,
+      uniqueVulnerabilityCount: 2, // Vuln A (shared CVE) + Vuln B
+      outdatedComponentCount: 1,
+      findingsBySeverity: { info: 0, low: 1, medium: 1, high: 1, critical: 1 },
+    });
+  });
+
+  it('returns all zeros for an empty findings list', () => {
+    expect(calculateReportCounters([])).toEqual({
+      componentsWithVulnerabilities: 0,
+      uniqueVulnerabilityCount: 0,
+      outdatedComponentCount: 0,
+      findingsBySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
+    });
+  });
+
+  it('ignores non-component findings entirely for component-shaped counters', () => {
+    const findings: Finding[] = [
+      createFinding({
+        id: 'f1',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'high',
+        sourceLayer: 1,
+        businessImpact: 'medium',
+        recommendationKey: 'finding.tls.invalidCertificate.recommendation',
+        evidence: [],
+      }),
+    ];
+
+    const counters = calculateReportCounters(findings);
+
+    expect(counters.componentsWithVulnerabilities).toBe(0);
+    expect(counters.outdatedComponentCount).toBe(0);
+    expect(counters.uniqueVulnerabilityCount).toBe(0);
+    expect(counters.findingsBySeverity.high).toBe(1);
   });
 });

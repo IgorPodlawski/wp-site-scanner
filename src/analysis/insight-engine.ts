@@ -12,9 +12,7 @@ import type { Finding, Insight } from '../core/types/index.js';
 const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => boolean }> = [
   {
     messageKey: 'insight.knownVulnerabilities',
-    matches: (finding) =>
-      finding.recommendationKey.startsWith('finding.plugin.vulnerability') ||
-      finding.recommendationKey.startsWith('finding.theme.vulnerability'),
+    matches: (finding) => (finding.component?.vulnerabilitySeverities.length ?? 0) > 0,
   },
   {
     messageKey: 'insight.priority',
@@ -22,11 +20,7 @@ const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => 
   },
   {
     messageKey: 'insight.outdatedComponents',
-    matches: (finding) =>
-      finding.recommendationKey.startsWith('finding.plugin.outdated') ||
-      finding.recommendationKey.startsWith('finding.theme.outdated') ||
-      finding.recommendationKey.startsWith('finding.core.outdated') ||
-      finding.recommendationKey.startsWith('finding.core.insecure'),
+    matches: (finding) => finding.component?.isOutdated === true,
   },
   {
     messageKey: 'insight.missingSecurityHeaders',

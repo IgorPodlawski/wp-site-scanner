@@ -4,6 +4,7 @@ import type {
   Finding,
   FindingEvidence,
   FindingSeverity,
+  ReportCounters,
   VersionInfo,
 } from '../core/types/index.js';
 import { createFinding } from '../core/types/finding.js';
@@ -481,4 +482,44 @@ export function generateFindings(context: AuditContext): Finding[] {
   }
 
   return findings;
+}
+
+const VULNERABILITY_EVIDENCE_PREFIX = 'finding.componentVulnerability.';
+
+/**
+ * Report-wide counts derived from the final Finding list, computed once so
+ * the report and any insight built on it always agree on the same numbers.
+ * `uniqueVulnerabilityCount` deduplicates across every component (not just
+ * within one) — the same CVE affecting both a plugin and WordPress core
+ * counts once here, even though it legitimately appears in both findings.
+ */
+export function calculateReportCounters(findings: readonly Finding[]): ReportCounters {
+  const componentFindings = findings.filter((finding) => finding.component);
+
+  const allVulnerabilities = componentFindings.flatMap((finding) =>
+    finding.evidence
+      .filter((evidence) => evidence.descriptionKey.startsWith(VULNERABILITY_EVIDENCE_PREFIX))
+      .map((evidence) => evidence.raw as WpscanVulnerability),
+  );
+
+  const findingsBySeverity: Record<FindingSeverity, number> = {
+    info: 0,
+    low: 0,
+    medium: 0,
+    high: 0,
+    critical: 0,
+  };
+  for (const finding of findings) {
+    findingsBySeverity[finding.severity] += 1;
+  }
+
+  return {
+    componentsWithVulnerabilities: componentFindings.filter(
+      (finding) => finding.component!.vulnerabilitySeverities.length > 0,
+    ).length,
+    uniqueVulnerabilityCount: dedupeVulnerabilities(allVulnerabilities).length,
+    outdatedComponentCount: componentFindings.filter((finding) => finding.component!.isOutdated)
+      .length,
+    findingsBySeverity,
+  };
 }

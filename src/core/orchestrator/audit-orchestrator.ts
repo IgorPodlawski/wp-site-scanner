@@ -22,6 +22,7 @@ import { AuditFailureError, MissingConsentError } from '../errors.js';
 import { saveAuditResult } from '../../storage/json-store.js';
 import {
   generateFindings,
+  calculateReportCounters,
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
@@ -154,6 +155,8 @@ export class AuditOrchestrator {
     const insights = generateInsights(findings);
     context.setInsights(insights);
 
+    const counters = calculateReportCounters(findings);
+
     const result: AuditResult = {
       id: randomUUID(),
       target,
@@ -168,6 +171,7 @@ export class AuditOrchestrator {
       findings,
       insights,
       scores,
+      counters,
       limitations,
     };
 

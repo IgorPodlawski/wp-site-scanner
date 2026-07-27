@@ -50,23 +50,36 @@ describe('generateInsights', () => {
     expect(insights.some((i) => i.messageKey === 'insight.missingSecurityHeaders')).toBe(false);
   });
 
-  it('groups outdated plugin/theme/core findings under one insight', () => {
+  it('groups outdated plugin/theme/core findings under one insight, based on finding.component.isOutdated', () => {
     const f1 = finding({
       id: 'f1',
       category: 'maintenance',
-      recommendationKey: 'finding.plugin.outdated.recommendation',
+      recommendationKey: 'finding.component.plugin.outdated.recommendation',
+      component: { kind: 'plugin', slug: 'akismet', isOutdated: true, vulnerabilitySeverities: [] },
     });
     const f2 = finding({
       id: 'f2',
       category: 'maintenance',
-      recommendationKey: 'finding.theme.outdated.recommendation',
+      recommendationKey: 'finding.component.theme.outdated.recommendation',
+      component: {
+        kind: 'theme',
+        slug: 'twentytwentyfour',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      },
     });
     const f3 = finding({
       id: 'f3',
-      category: 'security',
+      category: 'maintenance',
       confidence: 'confirmed',
-      severity: 'critical',
-      recommendationKey: 'finding.core.insecure.recommendation',
+      severity: 'medium',
+      recommendationKey: 'finding.component.core.outdated.recommendation',
+      component: {
+        kind: 'core',
+        slug: 'wordpress-core',
+        isOutdated: true,
+        vulnerabilitySeverities: [],
+      },
     });
 
     const insights = generateInsights([f1, f2, f3]);
@@ -76,6 +89,44 @@ describe('generateInsights', () => {
       findingIds: ['f1', 'f2', 'f3'],
       messageKey: 'insight.outdatedComponents',
       messageParams: { count: 3 },
+    });
+  });
+
+  it('groups vulnerable components under insight.knownVulnerabilities, including core (a previous gap)', () => {
+    const f1 = finding({
+      id: 'f1',
+      category: 'security',
+      confidence: 'confirmed',
+      severity: 'critical',
+      recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+      component: {
+        kind: 'plugin',
+        slug: 'akismet',
+        isOutdated: false,
+        vulnerabilitySeverities: ['critical'],
+      },
+    });
+    const f2 = finding({
+      id: 'f2',
+      category: 'security',
+      confidence: 'confirmed',
+      severity: 'high',
+      recommendationKey: 'finding.component.core.vulnerable.recommendation',
+      component: {
+        kind: 'core',
+        slug: 'wordpress-core',
+        isOutdated: false,
+        vulnerabilitySeverities: ['high'],
+      },
+    });
+
+    const insights = generateInsights([f1, f2]);
+    const known = insights.find((i) => i.messageKey === 'insight.knownVulnerabilities');
+
+    expect(known).toEqual({
+      findingIds: ['f1', 'f2'],
+      messageKey: 'insight.knownVulnerabilities',
+      messageParams: { count: 2 },
     });
   });
 
