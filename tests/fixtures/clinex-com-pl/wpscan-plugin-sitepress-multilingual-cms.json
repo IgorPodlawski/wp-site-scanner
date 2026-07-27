@@ -1,14 +1,17 @@
 [
   {
-    "id": "d3c6a7b2-0000-0000-0000-000000000001",
+    "id": "41673afd-4ddd-4db8-a676-a85c3c93f9b0",
     "title": "WPML Multilingual CMS < 4.6.13 - Contributor+ RCE via Twig Server-Side Template Injection",
     "fixedIn": "4.6.13",
+    "vulnType": "RCE",
     "references": ["CVE-2024-6386"]
   },
   {
-    "id": "d3c6a7b2-0000-0000-0000-000000000002",
+    "id": "51f551e7-e16e-43fc-94f7-b6a1f82ee314",
     "title": "WPML Multilingual CMS 3.6.0 - 4.7.3 - Authenticated (Contributor+) Stored Cross-Site Scripting via wpml_language_switcher Shortcode",
     "fixedIn": "4.7.4",
+    "introducedIn": "3.6.0",
+    "vulnType": "XSS",
     "references": ["CVE-2025-3488"]
   }
 ]
