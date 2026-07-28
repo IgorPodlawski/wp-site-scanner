@@ -1,5 +1,19 @@
 import type { Finding, Insight } from '../core/types/index.js';
 
+interface InsightRule {
+  messageKey: string;
+  matches: (finding: Finding) => boolean;
+  /** Defaults to `{ count: matched.length }` — only overridden when a rule needs a different shape (see insight.knownVulnerabilities). */
+  params?: (matched: Finding[]) => Record<string, string | number>;
+}
+
+function totalVulnerabilities(matched: readonly Finding[]): number {
+  return matched.reduce(
+    (sum, finding) => sum + (finding.component?.vulnerabilities.length ?? 0),
+    0,
+  );
+}
+
 /**
  * Synthesizes evidence-based, client-facing takeaways from Findings —
  * fulfils CLAUDE.md's "Sales Insight Engine" spec, deliberately renamed and
@@ -8,11 +22,22 @@ import type { Finding, Insight } from '../core/types/index.js';
  * rule below only ever groups Findings that were actually raised (never
  * asserts anything beyond them), and every Insight carries the exact
  * findingIds it's built on.
+ *
+ * Missing security headers / info-disclosure headers deliberately have no
+ * rule here — they're hygiene recommendations (see html-report.ts's
+ * "Quick wins" section), not risk findings worth a headline insight.
  */
-const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => boolean }> = [
+const INSIGHT_RULES: InsightRule[] = [
   {
+    // "22 vulnerabilities across 8 components", never a single ambiguous
+    // number — {{count}} used to mean "components", which silently
+    // undercounted the actual number of known vulnerabilities.
     messageKey: 'insight.knownVulnerabilities',
     matches: (finding) => (finding.component?.vulnerabilities.length ?? 0) > 0,
+    params: (matched) => ({
+      componentCount: matched.length,
+      vulnCount: totalVulnerabilities(matched),
+    }),
   },
   {
     messageKey: 'insight.priority',
@@ -23,16 +48,10 @@ const INSIGHT_RULES: Array<{ messageKey: string; matches: (finding: Finding) => 
     matches: (finding) => finding.component?.isOutdated === true,
   },
   {
-    messageKey: 'insight.missingSecurityHeaders',
-    matches: (finding) => finding.recommendationKey.startsWith('finding.header.missing'),
-  },
-  {
-    messageKey: 'insight.infoDisclosure',
-    matches: (finding) => finding.recommendationKey.startsWith('finding.header.infoDisclosure'),
-  },
-  {
+    // Covers both TLS findings and the "no HTTPS at all" finding — both are
+    // 'infrastructure' category (see finding-engine.ts).
     messageKey: 'insight.tlsConfiguration',
-    matches: (finding) => finding.recommendationKey.startsWith('finding.tls.'),
+    matches: (finding) => finding.category === 'infrastructure',
   },
   {
     messageKey: 'insight.exposedEndpoints',
@@ -54,7 +73,7 @@ export function generateInsights(findings: readonly Finding[]): Insight[] {
     insights.push({
       findingIds: matched.map((finding) => finding.id),
       messageKey: rule.messageKey,
-      messageParams: { count: matched.length },
+      messageParams: rule.params ? rule.params(matched) : { count: matched.length },
     });
   }
 

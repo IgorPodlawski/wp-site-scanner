@@ -22,32 +22,43 @@ describe('generateInsights', () => {
     expect(generateInsights([])).toEqual([]);
   });
 
-  it('groups missing-header findings into one insight referencing all of them', () => {
+  it('never surfaces missing-header or info-disclosure findings as insights — they are hygiene, not headline risk', () => {
     const f1 = finding({ id: 'f1', recommendationKey: 'finding.header.missingCsp.recommendation' });
     const f2 = finding({
       id: 'f2',
       recommendationKey: 'finding.header.missingXFrameOptions.recommendation',
     });
+    const f3 = finding({
+      id: 'f3',
+      recommendationKey: 'finding.header.infoDisclosure.recommendation',
+    });
+
+    const insights = generateInsights([f1, f2, f3]);
+
+    expect(insights).toEqual([]);
+  });
+
+  it('surfaces both TLS findings and the "no HTTPS" finding under the same infrastructure insight', () => {
+    const f1 = finding({
+      id: 'f1',
+      category: 'infrastructure',
+      recommendationKey: 'finding.tls.outdatedProtocol.recommendation',
+    });
+    const f2 = finding({
+      id: 'f2',
+      category: 'infrastructure',
+      recommendationKey: 'finding.infrastructure.noHttps.recommendation',
+    });
 
     const insights = generateInsights([f1, f2]);
 
-    expect(insights).toHaveLength(1);
-    expect(insights[0]).toEqual({
-      findingIds: ['f1', 'f2'],
-      messageKey: 'insight.missingSecurityHeaders',
-      messageParams: { count: 2 },
-    });
-  });
-
-  it('does not produce a missing-headers insight when there are no matching findings', () => {
-    const f1 = finding({
-      id: 'f1',
-      recommendationKey: 'finding.tls.outdatedProtocol.recommendation',
-    });
-
-    const insights = generateInsights([f1]);
-
-    expect(insights.some((i) => i.messageKey === 'insight.missingSecurityHeaders')).toBe(false);
+    expect(insights).toEqual([
+      {
+        findingIds: ['f1', 'f2'],
+        messageKey: 'insight.tlsConfiguration',
+        messageParams: { count: 2 },
+      },
+    ]);
   });
 
   it('groups outdated plugin/theme/core findings under one insight, based on finding.component.isOutdated', () => {
@@ -92,7 +103,7 @@ describe('generateInsights', () => {
     });
   });
 
-  it('groups vulnerable components under insight.knownVulnerabilities, including core (a previous gap)', () => {
+  it('groups vulnerable components under insight.knownVulnerabilities, including core (a previous gap), counting vulnerabilities and components separately', () => {
     const f1 = finding({
       id: 'f1',
       category: 'security',
@@ -103,7 +114,10 @@ describe('generateInsights', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: false,
-        vulnerabilities: [{ severity: 'critical', confirmed: true }],
+        vulnerabilities: [
+          { severity: 'critical', confirmed: true },
+          { severity: 'medium', confirmed: false },
+        ],
       },
     });
     const f2 = finding({
@@ -123,10 +137,12 @@ describe('generateInsights', () => {
     const insights = generateInsights([f1, f2]);
     const known = insights.find((i) => i.messageKey === 'insight.knownVulnerabilities');
 
+    // 2 components (akismet, core), but 3 total vulnerabilities — the two
+    // numbers must not collapse into one ambiguous count.
     expect(known).toEqual({
       findingIds: ['f1', 'f2'],
       messageKey: 'insight.knownVulnerabilities',
-      messageParams: { count: 2 },
+      messageParams: { componentCount: 2, vulnCount: 3 },
     });
   });
 
