@@ -276,6 +276,16 @@ function isAffectedByVulnerability(
   return comparison === -1 ? 'yes' : 'no';
 }
 
+/** Deduplicated, applicable-to-this-version vulnerabilities — shared by assembleComponentFinding (evidence) and generateFindings (the premium/no-.org-listing outdated fallback below), so the two never disagree about which vulnerabilities "count". */
+function applicableVulnerabilities(
+  installed: string,
+  rawVulnerabilities: readonly WpscanVulnerability[] | undefined,
+): WpscanVulnerability[] {
+  return dedupeVulnerabilities(rawVulnerabilities ?? []).filter(
+    (vulnerability) => isAffectedByVulnerability(installed, vulnerability.fixedIn) !== 'no',
+  );
+}
+
 const SEVERITY_ORDER: readonly FindingSeverity[] = ['info', 'low', 'medium', 'high', 'critical'];
 
 function maxSeverity(severities: readonly FindingSeverity[]): FindingSeverity {
@@ -339,15 +349,56 @@ function pluginOrThemeOutdatedStatus(
   };
 }
 
+/**
+ * Only ever called for a component wordpress.org has no listing for
+ * (premium/closed plugins/themes — e.g. Elementor Pro) — otherwise
+ * `pluginOrThemeOutdatedStatus`'s .org-based comparison is authoritative for
+ * "outdated". Without wordpress.org's own "latest version" to compare
+ * against, an outdated status is instead derived directly from WPScan: if
+ * any applicable vulnerability has a defined `fixedIn` newer than the
+ * installed version, the component is outdated *at least* relative to that
+ * fix (even though the true latest release may be even newer) — the highest
+ * such `fixedIn` among candidates is used as the reference point.
+ */
+function wpscanBasedOutdatedStatus(
+  kind: 'plugin' | 'theme',
+  slug: string,
+  installed: string,
+  applicable: readonly WpscanVulnerability[],
+): OutdatedStatus | undefined {
+  let bestFixedIn: string | undefined;
+  for (const vulnerability of applicable) {
+    if (!vulnerability.fixedIn) continue;
+    if (isAffectedByVulnerability(installed, vulnerability.fixedIn) !== 'yes') continue;
+    if (!bestFixedIn || compareVersions(bestFixedIn, vulnerability.fixedIn) === -1) {
+      bestFixedIn = vulnerability.fixedIn;
+    }
+  }
+  if (!bestFixedIn) return undefined;
+
+  return {
+    evidenceKey: `finding.component.${kind}.outdatedStatus.fromFixedIn.evidence`,
+    params: { slug, installed, fixedIn: bestFixedIn },
+  };
+}
+
 function coreOutdatedStatus(
   version: VersionInfo,
   stableVersions: CoreStableVersions,
+  wpscanHasApplicableVulnerabilities: boolean,
 ): OutdatedStatus | undefined {
   const status = stableVersions[version.value];
   if (!status || status === 'latest') return undefined;
+
+  // WPScan's itemized CVEs (added to the same Finding's evidence separately)
+  // already convey "core has known vulnerabilities" better than this generic
+  // signal — asserting it twice is redundant. Core is still tracked as
+  // outdated below via the plain evidence key either way.
+  const isRedundantInsecureSignal = status === 'insecure' && wpscanHasApplicableVulnerabilities;
+
   return {
     evidenceKey:
-      status === 'insecure'
+      status === 'insecure' && !isRedundantInsecureSignal
         ? 'finding.component.core.insecureStatus.evidence'
         : 'finding.component.core.outdatedStatus.evidence',
     params: { installed: version.value },
@@ -373,10 +424,7 @@ function assembleComponentFinding(
   outdated: OutdatedStatus | undefined,
   rawVulnerabilities: readonly WpscanVulnerability[] | undefined,
 ): Finding | undefined {
-  const applicable = dedupeVulnerabilities(rawVulnerabilities ?? []).filter(
-    (vulnerability) =>
-      isAffectedByVulnerability(component.version.value, vulnerability.fixedIn) !== 'no',
-  );
+  const applicable = applicableVulnerabilities(component.version.value, rawVulnerabilities);
 
   if (!outdated && applicable.length === 0) return undefined;
 
@@ -498,16 +546,24 @@ export function generateFindings(context: AuditContext): Finding[] {
     Record<string, WpscanVulnerability[] | undefined> | undefined;
   for (const plugin of pluginData?.plugins ?? []) {
     if (!plugin.version) continue;
-    const outdated = pluginOrThemeOutdatedStatus(
-      'plugin',
-      plugin.slug,
-      plugin.version,
-      pluginEnrichment?.[plugin.slug]?.version,
-    );
+    const latest = pluginEnrichment?.[plugin.slug]?.version;
+    const rawVulnerabilities = pluginVulnerabilities?.[plugin.slug];
+    const outdated =
+      pluginOrThemeOutdatedStatus('plugin', plugin.slug, plugin.version, latest) ??
+      // No .org listing at all (premium/closed plugin) — fall back to WPScan's
+      // own fixed_in data rather than never flagging it as outdated.
+      (latest === undefined
+        ? wpscanBasedOutdatedStatus(
+            'plugin',
+            plugin.slug,
+            plugin.version.value,
+            applicableVulnerabilities(plugin.version.value, rawVulnerabilities),
+          )
+        : undefined);
     const finding = assembleComponentFinding(
       { kind: 'plugin', slug: plugin.slug, version: plugin.version },
       outdated,
-      pluginVulnerabilities?.[plugin.slug],
+      rawVulnerabilities,
     );
     if (finding) findings.push(finding);
   }
@@ -519,16 +575,22 @@ export function generateFindings(context: AuditContext): Finding[] {
     Record<string, WpscanVulnerability[] | undefined> | undefined;
   for (const theme of themeData?.themes ?? []) {
     if (!theme.version) continue;
-    const outdated = pluginOrThemeOutdatedStatus(
-      'theme',
-      theme.slug,
-      theme.version,
-      themeEnrichment?.[theme.slug]?.version,
-    );
+    const latest = themeEnrichment?.[theme.slug]?.version;
+    const rawVulnerabilities = themeVulnerabilities?.[theme.slug];
+    const outdated =
+      pluginOrThemeOutdatedStatus('theme', theme.slug, theme.version, latest) ??
+      (latest === undefined
+        ? wpscanBasedOutdatedStatus(
+            'theme',
+            theme.slug,
+            theme.version.value,
+            applicableVulnerabilities(theme.version.value, rawVulnerabilities),
+          )
+        : undefined);
     const finding = assembleComponentFinding(
       { kind: 'theme', slug: theme.slug, version: theme.version },
       outdated,
-      themeVulnerabilities?.[theme.slug],
+      rawVulnerabilities,
     );
     if (finding) findings.push(finding);
   }
@@ -542,7 +604,11 @@ export function generateFindings(context: AuditContext): Finding[] {
       CoreStableVersions | undefined;
     const coreVulnerabilities = context.getEnrichment(WPSCAN_CORE_ENRICHMENT) as
       WpscanVulnerability[] | undefined;
-    const outdated = coreEnrichment ? coreOutdatedStatus(coreVersion, coreEnrichment) : undefined;
+    const hasApplicableCoreVulnerabilities =
+      applicableVulnerabilities(coreVersion.value, coreVulnerabilities).length > 0;
+    const outdated = coreEnrichment
+      ? coreOutdatedStatus(coreVersion, coreEnrichment, hasApplicableCoreVulnerabilities)
+      : undefined;
     const finding = assembleComponentFinding(
       { kind: 'core', slug: CORE_SLUG, version: coreVersion },
       outdated,

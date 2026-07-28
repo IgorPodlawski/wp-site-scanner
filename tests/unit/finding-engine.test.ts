@@ -629,6 +629,93 @@ describe('generateFindings', () => {
     });
   });
 
+  describe('premium plugins (no wordpress.org listing)', () => {
+    it('a .org 404 does not block WPScan — a plugin absent from wordpress.org still gets vulnerability findings', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'elementor-pro',
+              version: { value: '3.20.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      // No WORDPRESS_ORG_PLUGIN_ENRICHMENT entry at all for this slug (as if
+      // the .org lookup ran and came back "not found" — a normal outcome for
+      // a premium plugin, not a failure).
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'elementor-pro': [
+          { id: 'v1', title: 'Some issue', fixedIn: '3.21.0', cvssScore: 7.5, references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({ category: 'security', severity: 'high' });
+    });
+
+    it('derives "outdated" from WPScan\'s fixed_in when wordpress.org has no listing for the component', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'elementor-pro',
+              version: { value: '3.20.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'elementor-pro': [
+          { id: 'v1', title: 'Issue A', fixedIn: '3.21.0', references: [] },
+          { id: 'v2', title: 'Issue B', fixedIn: '3.22.0', references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings[0]!.component).toMatchObject({ isOutdated: true });
+      // Points at the *highest* fixed_in among candidates, not just the first.
+      const outdatedEvidence = findings[0]!.evidence.find(
+        (e) => e.descriptionKey === 'finding.component.plugin.outdatedStatus.fromFixedIn.evidence',
+      );
+      expect(outdatedEvidence?.params).toEqual({
+        slug: 'elementor-pro',
+        installed: '3.20.0',
+        fixedIn: '3.22.0',
+      });
+    });
+
+    it('does not claim "outdated" for a premium plugin with no vulnerabilities at all (nothing to infer it from)', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'elementor-pro',
+              version: { value: '3.20.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
   describe('outdated themes (no known vulnerabilities)', () => {
     it('flags a theme older than the wordpress.org latest', () => {
       const context = createContext();
@@ -719,6 +806,41 @@ describe('generateFindings', () => {
       expect(
         findings[0]!.evidence.some(
           (e) => e.descriptionKey === 'finding.component.core.insecureStatus.evidence',
+        ),
+      ).toBe(true);
+    });
+
+    it('suppresses the generic "insecure" evidence line when WPScan already has itemized vulnerability data for core (dedup)', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, {
+        '6.4': 'insecure',
+        '7.0.2': 'latest',
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        { id: 'v1', title: 'Some core issue', fixedIn: '6.5', cvssScore: 7.5, references: [] },
+      ]);
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      // Still tracked as outdated — just via the plain key, not the redundant "insecure" one.
+      expect(findings[0]!.component).toMatchObject({ isOutdated: true });
+      expect(
+        findings[0]!.evidence.some(
+          (e) => e.descriptionKey === 'finding.component.core.insecureStatus.evidence',
+        ),
+      ).toBe(false);
+      expect(
+        findings[0]!.evidence.some(
+          (e) => e.descriptionKey === 'finding.component.core.outdatedStatus.evidence',
         ),
       ).toBe(true);
     });

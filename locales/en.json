@@ -82,6 +82,8 @@
   "finding.tls.invalidCertificate.recommendation": "Renew or reconfigure the TLS certificate so it validates correctly.",
   "finding.tls.outdatedProtocol.evidence": "The server negotiated {{protocol}}, an outdated TLS protocol version.",
   "finding.tls.outdatedProtocol.recommendation": "Disable outdated TLS protocol versions and require TLS 1.2 or newer.",
+  "finding.infrastructure.noHttps.evidence": "This site does not offer an encrypted HTTPS connection — all traffic is sent as plain text.",
+  "finding.infrastructure.noHttps.recommendation": "Configure a TLS certificate and redirect all HTTP traffic to HTTPS.",
 
   "finding.endpoint.userEnumeration.evidence": "The REST API user list is publicly accessible and exposes {{count}} username(s).",
   "finding.endpoint.userEnumeration.recommendation": "Restrict or disable the /wp-json/wp/v2/users endpoint to stop username enumeration.",
@@ -94,11 +96,13 @@
 
   "finding.component.plugin.versionInfo.evidence": "Detected plugin: {{slug}}, version {{installed}} (source: {{source}}).",
   "finding.component.plugin.outdatedStatus.evidence": "The {{slug}} plugin is outdated — installed version {{installed}}, latest available on WordPress.org is {{latest}}.",
+  "finding.component.plugin.outdatedStatus.fromFixedIn.evidence": "The {{slug}} plugin is not listed on WordPress.org, but installed version {{installed}} is older than the {{fixedIn}} fix for a known vulnerability.",
   "finding.component.plugin.outdated.recommendation": "Update the {{slug}} plugin to the latest version to receive bug fixes and security patches.",
   "finding.component.plugin.vulnerable.recommendation": "Update the {{slug}} plugin as soon as possible — see the listed vulnerabilities below for details.",
 
   "finding.component.theme.versionInfo.evidence": "Detected theme: {{slug}}, version {{installed}} (source: {{source}}).",
   "finding.component.theme.outdatedStatus.evidence": "The {{slug}} theme is outdated — installed version {{installed}}, latest available on WordPress.org is {{latest}}.",
+  "finding.component.theme.outdatedStatus.fromFixedIn.evidence": "The {{slug}} theme is not listed on WordPress.org, but installed version {{installed}} is older than the {{fixedIn}} fix for a known vulnerability.",
   "finding.component.theme.outdated.recommendation": "Update the {{slug}} theme to the latest version to receive bug fixes and security patches.",
   "finding.component.theme.vulnerable.recommendation": "Update the {{slug}} theme as soon as possible — see the listed vulnerabilities below for details.",
 

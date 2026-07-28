@@ -82,6 +82,8 @@
   "finding.tls.invalidCertificate.recommendation": "Odnów lub skonfiguruj ponownie certyfikat TLS, aby przechodził walidację.",
   "finding.tls.outdatedProtocol.evidence": "Serwer wynegocjował {{protocol}} — przestarzałą wersję protokołu TLS.",
   "finding.tls.outdatedProtocol.recommendation": "Wyłącz przestarzałe wersje protokołu TLS i wymagaj TLS 1.2 lub nowszego.",
+  "finding.infrastructure.noHttps.evidence": "Strona nie oferuje szyfrowanego połączenia HTTPS — cały ruch przesyłany jest jako czysty tekst.",
+  "finding.infrastructure.noHttps.recommendation": "Skonfiguruj certyfikat TLS i przekieruj cały ruch HTTP na HTTPS.",
 
   "finding.endpoint.userEnumeration.evidence": "Lista użytkowników REST API jest publicznie dostępna i ujawnia {{count}} nazwę/nazwy użytkownika.",
   "finding.endpoint.userEnumeration.recommendation": "Ogranicz lub wyłącz endpoint /wp-json/wp/v2/users, aby uniemożliwić wyliczanie nazw użytkowników.",
@@ -94,11 +96,13 @@
 
   "finding.component.plugin.versionInfo.evidence": "Wykryta wtyczka: {{slug}}, wersja {{installed}} (źródło: {{source}}).",
   "finding.component.plugin.outdatedStatus.evidence": "Wtyczka {{slug}} jest nieaktualna — zainstalowana wersja {{installed}}, najnowsza wersja na WordPress.org to {{latest}}.",
+  "finding.component.plugin.outdatedStatus.fromFixedIn.evidence": "Wtyczka {{slug}} nie jest wypisana na WordPress.org, ale zainstalowana wersja {{installed}} jest starsza niż wersja {{fixedIn}} naprawiająca znaną podatność.",
   "finding.component.plugin.outdated.recommendation": "Zaktualizuj wtyczkę {{slug}} do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
   "finding.component.plugin.vulnerable.recommendation": "Zaktualizuj wtyczkę {{slug}} najszybciej jak możliwe — szczegóły w wypisanych poniżej podatnościach.",
 
   "finding.component.theme.versionInfo.evidence": "Wykryty motyw: {{slug}}, wersja {{installed}} (źródło: {{source}}).",
   "finding.component.theme.outdatedStatus.evidence": "Motyw {{slug}} jest nieaktualny — zainstalowana wersja {{installed}}, najnowsza wersja na WordPress.org to {{latest}}.",
+  "finding.component.theme.outdatedStatus.fromFixedIn.evidence": "Motyw {{slug}} nie jest wypisany na WordPress.org, ale zainstalowana wersja {{installed}} jest starsza niż wersja {{fixedIn}} naprawiająca znaną podatność.",
   "finding.component.theme.outdated.recommendation": "Zaktualizuj motyw {{slug}} do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
   "finding.component.theme.vulnerable.recommendation": "Zaktualizuj motyw {{slug}} najszybciej jak możliwe — szczegóły w wypisanych poniżej podatnościach.",
 
