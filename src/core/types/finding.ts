@@ -16,18 +16,30 @@ export interface FindingEvidence {
 }
 
 /**
+ * `confirmed` mirrors the same "version confirmed AND applicable" check that
+ * selects a vulnerability's confirmed/potential evidence wording — kept here
+ * too so rating-engine.ts's Security rule can read it without re-deriving it
+ * from evidence description keys.
+ */
+export interface ComponentVulnerabilityInfo {
+  severity: FindingSeverity;
+  confirmed: boolean;
+}
+
+/**
  * Present only on a merged component (WordPress core/plugin/theme) finding.
- * `vulnerabilitySeverities` is the resolved severity of each *applicable*,
- * deduplicated vulnerability — the finding's own `severity` is the max of
- * these, and scoring-engine.ts uses the full list (not just the max) for its
- * per-component aggregation. Empty when the component is outdated but has
- * no known vulnerabilities.
+ * `vulnerabilities` is each *applicable*, deduplicated vulnerability's
+ * resolved severity + confirmed-applicable flag — the finding's own
+ * `severity` is derived from these (max, with escalation — see
+ * finding-engine.ts), and rating-engine.ts's Security rule reads the raw
+ * list directly rather than the escalated badge. Empty when the component is
+ * outdated but has no known vulnerabilities.
  */
 export interface ComponentFindingInfo {
   kind: 'core' | 'plugin' | 'theme';
   slug: string;
   isOutdated: boolean;
-  vulnerabilitySeverities: FindingSeverity[];
+  vulnerabilities: ComponentVulnerabilityInfo[];
 }
 
 export interface Finding {

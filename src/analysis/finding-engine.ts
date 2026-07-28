@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   AuditContext,
+  ComponentVulnerabilityInfo,
   Finding,
   FindingEvidence,
   FindingSeverity,
@@ -12,6 +13,7 @@ import { getScannerData } from '../core/types/scanner.js';
 import type { HeaderScannerData, SecurityHeaderName } from '../scanners/header-scanner.js';
 import type { TlsProbeResult } from '../core/http/tls-probe.js';
 import type { EndpointScannerData } from '../scanners/endpoint-scanner.js';
+import { effectiveUrl } from '../scanners/tls-scanner.js';
 import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../scanners/theme-scanner.js';
 import type {
@@ -34,6 +36,18 @@ export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
 export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
 export const WPSCAN_CORE_ENRICHMENT = 'wpscan-core';
 export const PAGESPEED_ENRICHMENT = 'pagespeed';
+
+/**
+ * Written once by AuditOrchestrator.run() after enrichment completes (same
+ * controlled-write pattern as every other enrichment key) — 'not_assessed'
+ * means the corresponding rating-engine.ts category couldn't actually check
+ * anything this run (WPScan never attempted or every lookup failed, for
+ * security; every wordpress.org lookup failed despite having components to
+ * check, for maintenance). Read back by rating-engine.ts, never by
+ * finding-engine.ts itself.
+ */
+export const SECURITY_COVERAGE_ENRICHMENT = 'coverage-security-wpscan';
+export const MAINTENANCE_COVERAGE_ENRICHMENT = 'coverage-maintenance-wordpress-org';
 
 /** Internal-only identifier for the core "component" — never rendered (finding.component.core.* keys don't reference {{slug}}). */
 const CORE_SLUG = 'wordpress-core';
@@ -92,6 +106,7 @@ function deriveHeaderFindings(data: HeaderScannerData): Finding[] {
 
 const OUTDATED_TLS_PROTOCOLS = new Set(['TLSv1', 'TLSv1.1']);
 
+/** TLS/HTTPS problems are 'infrastructure', not 'security' — matches the Infrastructure rating rule (rating-engine.ts), which is the thing that actually looks for this category. */
 function deriveTlsFindings(data: TlsProbeResult): Finding[] {
   const findings: Finding[] = [];
 
@@ -99,7 +114,7 @@ function deriveTlsFindings(data: TlsProbeResult): Finding[] {
     findings.push(
       createFinding({
         id: randomUUID(),
-        category: 'security',
+        category: 'infrastructure',
         confidence: 'confirmed',
         severity: 'high',
         sourceLayer: 1,
@@ -120,7 +135,7 @@ function deriveTlsFindings(data: TlsProbeResult): Finding[] {
     findings.push(
       createFinding({
         id: randomUUID(),
-        category: 'security',
+        category: 'infrastructure',
         confidence: 'confirmed',
         severity: 'medium',
         sourceLayer: 1,
@@ -137,6 +152,32 @@ function deriveTlsFindings(data: TlsProbeResult): Finding[] {
   }
 
   return findings;
+}
+
+/**
+ * A genuinely HTTP-only site (never upgrades to HTTPS) gets no TlsProbeResult
+ * at all — TlsScanner.supports() correctly skips it, since there's no TLS to
+ * probe. But that left no finding of any kind for "this site has no HTTPS",
+ * which is itself a real infrastructure gap. Reads the *effective* URL
+ * (post-redirect — see tls-scanner.ts's `effectiveUrl`), so a site that
+ * redirects http->https is correctly not flagged here (TlsScanner probes it
+ * instead).
+ */
+function deriveHttpsFindings(context: AuditContext): Finding[] {
+  if (new URL(effectiveUrl(context)).protocol === 'https:') return [];
+
+  return [
+    createFinding({
+      id: randomUUID(),
+      category: 'infrastructure',
+      confidence: 'confirmed',
+      severity: 'high',
+      sourceLayer: 1,
+      businessImpact: 'medium',
+      recommendationKey: 'finding.infrastructure.noHttps.recommendation',
+      evidence: [{ descriptionKey: 'finding.infrastructure.noHttps.evidence' }],
+    }),
+  ];
 }
 
 function deriveEndpointFindings(data: EndpointScannerData): Finding[] {
@@ -325,9 +366,9 @@ function coreOutdatedStatus(
 function assembleComponentFinding(
   component: ComponentIdentity,
   outdated: OutdatedStatus | undefined,
-  vulnerabilities: readonly WpscanVulnerability[] | undefined,
+  rawVulnerabilities: readonly WpscanVulnerability[] | undefined,
 ): Finding | undefined {
-  const applicable = dedupeVulnerabilities(vulnerabilities ?? []).filter(
+  const applicable = dedupeVulnerabilities(rawVulnerabilities ?? []).filter(
     (vulnerability) =>
       isAffectedByVulnerability(component.version.value, vulnerability.fixedIn) !== 'no',
   );
@@ -348,13 +389,13 @@ function assembleComponentFinding(
     evidence.push({ descriptionKey: outdated.evidenceKey, params: outdated.params });
   }
 
-  const vulnerabilitySeverities: FindingSeverity[] = [];
+  const vulnerabilities: ComponentVulnerabilityInfo[] = [];
   for (const vulnerability of applicable) {
     const affected = isAffectedByVulnerability(component.version.value, vulnerability.fixedIn);
     const isConfirmedApplicable =
       affected === 'yes' && component.version.confidence === 'confirmed';
     const severity = resolveVulnerabilitySeverity(vulnerability);
-    vulnerabilitySeverities.push(severity);
+    vulnerabilities.push({ severity, confirmed: isConfirmedApplicable });
 
     evidence.push({
       descriptionKey: `finding.componentVulnerability.${component.kind}.${isConfirmedApplicable ? 'confirmed' : 'potential'}.evidence`,
@@ -363,14 +404,14 @@ function assembleComponentFinding(
     });
   }
 
-  const hasVulnerabilities = vulnerabilitySeverities.length > 0;
+  const hasVulnerabilities = vulnerabilities.length > 0;
 
   return createFinding({
     id: randomUUID(),
     category: hasVulnerabilities ? 'security' : 'maintenance',
     confidence: component.version.confidence,
     severity: hasVulnerabilities
-      ? escalateForMultipleVulnerabilities(vulnerabilitySeverities)
+      ? escalateForMultipleVulnerabilities(vulnerabilities.map((v) => v.severity))
       : 'medium',
     sourceLayer: 'third-party',
     businessImpact: hasVulnerabilities ? 'strong' : 'medium',
@@ -381,7 +422,7 @@ function assembleComponentFinding(
       kind: component.kind,
       slug: component.slug,
       isOutdated: outdated !== undefined,
-      vulnerabilitySeverities,
+      vulnerabilities,
     },
   });
 }
@@ -440,6 +481,7 @@ export function generateFindings(context: AuditContext): Finding[] {
 
   const tlsData = getScannerData<TlsProbeResult>(results, 'tls-scanner');
   if (tlsData) findings.push(...deriveTlsFindings(tlsData));
+  findings.push(...deriveHttpsFindings(context));
 
   const endpointData = getScannerData<EndpointScannerData>(results, 'endpoint-scanner');
   if (endpointData) findings.push(...deriveEndpointFindings(endpointData));
@@ -544,7 +586,7 @@ export function calculateReportCounters(findings: readonly Finding[]): ReportCou
 
   return {
     componentsWithVulnerabilities: componentFindings.filter(
-      (finding) => finding.component!.vulnerabilitySeverities.length > 0,
+      (finding) => finding.component!.vulnerabilities.length > 0,
     ).length,
     uniqueVulnerabilityCount: dedupeVulnerabilities(allVulnerabilities).length,
     outdatedComponentCount: componentFindings.filter((finding) => finding.component!.isOutdated)

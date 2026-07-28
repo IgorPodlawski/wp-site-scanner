@@ -67,18 +67,36 @@ describe('renderHtml', () => {
     expect(html).toContain('No issues were identified.');
   });
 
-  it('renders scores, insights, and limitations when present', async () => {
+  it('renders ratings, measured scores, insights, and limitations when present', async () => {
     const result = baseResult({
-      scores: {
+      ratings: {
         categories: [
-          { category: 'security', value: 88, deductions: [] },
-          { category: 'maintenance', value: 100, deductions: [] },
-          { category: 'performance', value: 100, deductions: [] },
-          { category: 'seo', value: 100, deductions: [] },
-          { category: 'infrastructure', value: 100, deductions: [] },
+          {
+            category: 'security',
+            level: 'attention',
+            reasons: [
+              { key: 'rating.security.reason.potentialVulnerabilities', params: { count: 1 } },
+            ],
+          },
+          {
+            category: 'maintenance',
+            level: 'clear',
+            reasons: [{ key: 'rating.maintenance.reason.clear' }],
+          },
+          {
+            category: 'infrastructure',
+            level: 'clear',
+            reasons: [{ key: 'rating.infrastructure.reason.clear' }],
+          },
         ],
-        overall: 88,
+        overall: {
+          level: 'attention',
+          reasons: [
+            { key: 'rating.security.reason.potentialVulnerabilities', params: { count: 1 } },
+          ],
+        },
       },
+      measuredScores: { categories: [{ category: 'performance', value: 88 }] },
       insights: [
         { findingIds: ['f1'], messageKey: 'insight.priority', messageParams: { count: 1 } },
       ],
@@ -93,29 +111,28 @@ describe('renderHtml', () => {
   });
 
   describe('score readability', () => {
-    it('shows a 0-100 scale note and a good/fair/poor badge next to every score', async () => {
-      const result = baseResult({
-        scores: {
-          categories: [
-            { category: 'security', value: 30, deductions: [] },
-            { category: 'maintenance', value: 70, deductions: [] },
-            { category: 'performance', value: 95, deductions: [] },
-            { category: 'seo', value: 100, deductions: [] },
-            { category: 'infrastructure', value: 100, deductions: [] },
-          ],
-          overall: 30,
-        },
-      });
+    it('shows a 0-100 scale note and a good/fair/poor badge for the measured performance score', async () => {
+      const poor = await renderHtml(
+        baseResult({ measuredScores: { categories: [{ category: 'performance', value: 30 }] } }),
+        'en',
+      );
+      expect(poor).toContain('Each score is on a 0-100 scale');
+      expect(poor).toContain('30/100');
+      expect(poor).toContain('class="badge score-poor"');
 
-      const html = await renderHtml(result, 'en');
+      const fair = await renderHtml(
+        baseResult({ measuredScores: { categories: [{ category: 'performance', value: 70 }] } }),
+        'en',
+      );
+      expect(fair).toContain('70/100');
+      expect(fair).toContain('class="badge score-fair"');
 
-      expect(html).toContain('Each score is on a 0-100 scale');
-      expect(html).toContain('30/100');
-      expect(html).toContain('class="badge score-poor"');
-      expect(html).toContain('70/100');
-      expect(html).toContain('class="badge score-fair"');
-      expect(html).toContain('95/100');
-      expect(html).toContain('class="badge score-good"');
+      const good = await renderHtml(
+        baseResult({ measuredScores: { categories: [{ category: 'performance', value: 95 }] } }),
+        'en',
+      );
+      expect(good).toContain('95/100');
+      expect(good).toContain('class="badge score-good"');
     });
   });
 
@@ -258,7 +275,7 @@ describe('renderHtml', () => {
           kind: 'plugin',
           slug: 'akismet',
           isOutdated: false,
-          vulnerabilitySeverities: ['critical'],
+          vulnerabilities: [{ severity: 'critical', confirmed: true }],
         },
       });
 
@@ -304,7 +321,7 @@ describe('renderHtml', () => {
           kind: 'plugin',
           slug: 'akismet',
           isOutdated: false,
-          vulnerabilitySeverities: ['medium'],
+          vulnerabilities: [{ severity: 'medium', confirmed: true }],
         },
       });
 
@@ -337,7 +354,7 @@ describe('renderHtml', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       });
 
       const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
@@ -350,7 +367,7 @@ describe('renderHtml', () => {
         kind: 'theme',
         slug: 'astra',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       });
 
       const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
@@ -363,7 +380,7 @@ describe('renderHtml', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       });
 
       const html = await renderHtml(baseResult({ findings: [finding] }), 'en');

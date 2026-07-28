@@ -7,7 +7,10 @@ import type {
   Finding,
   FindingSeverity,
   Insight,
-  ScoreSummary,
+  MeasuredScoreSummary,
+  RatingLevel,
+  RatingReason,
+  RatingSummary,
   VersionInfo,
 } from '../core/types/index.js';
 import { getScannerData } from '../core/types/scanner.js';
@@ -113,18 +116,60 @@ function renderScoreValue(value: number, t: Translate): string {
   return `${value}/100 <span class="badge score-${band}">${text(t, `report.scoreBand.${band}`)}</span>`;
 }
 
-function renderScoresSection(scores: ScoreSummary | undefined, t: Translate): string {
-  if (!scores) return '';
+function renderRatingLevel(level: RatingLevel, t: Translate): string {
+  return `<span class="badge rating-${level}">${text(t, `report.rating.level.${level}`)}</span>`;
+}
+
+function renderRatingReasons(reasons: readonly RatingReason[], t: Translate): string {
+  if (reasons.length === 0) return '';
+  const items = reasons.map((r) => `<li>${text(t, r.key, r.params)}</li>`).join('');
+  return `<ul class="rating-reasons">${items}</ul>`;
+}
+
+/**
+ * Security/Maintenance/Infrastructure/Overall are qualitative levels, not
+ * 0-100 numbers (see rating-engine.ts for why) — each row shows the level
+ * badge plus the concrete facts ("why") that drove it, never a bare number.
+ */
+function renderRatingsSection(ratings: RatingSummary | undefined, t: Translate): string {
+  if (!ratings) return '';
 
   const rows: Array<[string, string]> = [
-    ...scores.categories.map(
-      (c): [string, string] => [text(t, `score.category.${c.category}`), renderScoreValue(c.value, t)],
+    ...ratings.categories.map(
+      (c): [string, string] => [
+        text(t, `score.category.${c.category}`),
+        renderRatingLevel(c.level, t) + renderRatingReasons(c.reasons, t),
+      ],
     ),
-    [text(t, 'score.category.overall'), renderScoreValue(scores.overall, t)],
+    [
+      text(t, 'score.category.overall'),
+      renderRatingLevel(ratings.overall.level, t) + renderRatingReasons(ratings.overall.reasons, t),
+    ],
+  ];
+
+  return `<h2>${text(t, 'report.section.ratings')}</h2>${renderTable(rows)}`;
+}
+
+/**
+ * Performance's number is the real Lighthouse/PageSpeed score, shown
+ * whether it's good or poor (previously invisible in a clean run — see
+ * scoring-engine.ts). SEO always renders as "not assessed" — there is no
+ * real Lighthouse SEO measurement wired up yet, so there is no number to
+ * show for it.
+ */
+function renderMeasuredScoresSection(measured: MeasuredScoreSummary | undefined, t: Translate): string {
+  const performance = measured?.categories.find((c) => c.category === 'performance');
+
+  const rows: Array<[string, string]> = [
+    [
+      text(t, 'score.category.performance'),
+      performance ? renderScoreValue(performance.value, t) : text(t, 'report.measured.notAssessed'),
+    ],
+    [text(t, 'score.category.seo'), text(t, 'report.measured.notAssessed')],
   ];
 
   return (
-    `<h2>${text(t, 'report.section.scores')}</h2>` +
+    `<h2>${text(t, 'report.section.measuredScores')}</h2>` +
     `<p class="scores-scale-note">${text(t, 'report.scores.scaleNote')}</p>${renderTable(rows)}`
   );
 }
@@ -318,7 +363,8 @@ export async function renderHtml(result: AuditResult, lang: Locale): Promise<str
     LANG: lang,
     REPORT_TITLE: text(t, 'report.summary.title'),
     SUMMARY_SECTION: renderSummarySection(result, t),
-    SCORES_SECTION: renderScoresSection(result.scores, t),
+    RATINGS_SECTION: renderRatingsSection(result.ratings, t),
+    MEASURED_SCORES_SECTION: renderMeasuredScoresSection(result.measuredScores, t),
     INSIGHTS_SECTION: renderInsightsSection(result.insights, t),
     FINDINGS_SECTION: renderFindingsSection(result.findings, t),
     PLUGINS_SECTION: renderPluginsSection(result, t),

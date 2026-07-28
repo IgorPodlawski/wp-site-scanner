@@ -108,7 +108,11 @@ describe('AuditOrchestrator.run', () => {
       'wordpress-detector',
       'core-version-scanner',
     ]);
-    expect(result.scores?.overall).toBe(100);
+    // maintenance is 'clear' (org lookup succeeded, nothing outdated); security
+    // and infrastructure are 'not_assessed' (prospect mode never runs WPScan or
+    // tls-scanner here) — overall is the worst of the *assessed* categories.
+    expect(result.ratings?.overall.level).toBe('clear');
+    expect(result.measuredScores).toEqual({ categories: [] });
     expect(saveAuditResult).toHaveBeenCalledWith(result);
   });
 

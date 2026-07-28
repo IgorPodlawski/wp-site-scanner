@@ -30,17 +30,36 @@ import {
   WPSCAN_THEME_ENRICHMENT,
   WPSCAN_CORE_ENRICHMENT,
   PAGESPEED_ENRICHMENT,
+  SECURITY_COVERAGE_ENRICHMENT,
+  MAINTENANCE_COVERAGE_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
-import { calculateScores } from '../../analysis/scoring-engine.js';
+import { calculateMeasuredScores } from '../../analysis/scoring-engine.js';
+import { calculateRatings } from '../../analysis/rating-engine.js';
 import { generateInsights } from '../../analysis/insight-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
 import type { WpscanClient } from '../../integrations/wpscan-client.js';
 import type { PageSpeedClient } from '../../integrations/pagespeed-client.js';
+import type { PageSpeedResult } from '../../integrations/enrichment-types.js';
 import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../../scanners/theme-scanner.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
+
+/**
+ * How much of an enrichment track (WordPress.org for maintenance, WPScan for
+ * security) actually got checked this run — used to compute the
+ * SECURITY_COVERAGE_ENRICHMENT/MAINTENANCE_COVERAGE_ENRICHMENT flags
+ * rating-engine.ts reads. `attempted`/`succeeded` are counts across every
+ * item checked (a "not found on wordpress.org" for one premium plugin still
+ * counts as a success — the lookup itself worked, it just had nothing to
+ * report), aggregated across plugin+theme+core calls.
+ */
+interface EnrichmentOutcome {
+  attempted: number;
+  succeeded: number;
+  limitation?: string;
+}
 
 /**
  * Filters scanners by the active authorization mode. This is the mechanical
@@ -131,8 +150,17 @@ export class AuditOrchestrator {
     const limitations = await this.runScanners(scanners, context);
 
     const isWordPress = context.isWordPress() ?? false;
+    let pageSpeedResult: PageSpeedResult | undefined;
     if (isWordPress) {
-      const enrichmentLimitations = await Promise.all([
+      const [
+        orgPlugins,
+        orgThemes,
+        orgCore,
+        wpscanPlugins,
+        wpscanThemes,
+        wpscanCore,
+        perfLimitation,
+      ] = await Promise.all([
         this.enrichPlugins(context),
         this.enrichThemes(context),
         this.enrichCore(context),
@@ -141,7 +169,28 @@ export class AuditOrchestrator {
         this.enrichCoreVulnerabilities(context),
         this.enrichPerformance(context),
       ]);
-      limitations.push(...enrichmentLimitations.filter((l): l is string => l !== undefined));
+
+      const orgOutcomes = [orgPlugins, orgThemes, orgCore];
+      const wpscanOutcomes = [wpscanPlugins, wpscanThemes, wpscanCore];
+      limitations.push(
+        ...[...orgOutcomes, ...wpscanOutcomes]
+          .map((outcome) => outcome.limitation)
+          .filter((l): l is string => l !== undefined),
+        ...(perfLimitation ? [perfLimitation] : []),
+      );
+
+      // WPScan is gated off entirely in prospect mode / without a token — that
+      // must read as not_assessed even when there was nothing to check
+      // (attempted === 0), unlike wordpress.org, which is always attempted
+      // regardless of mode and only becomes not_assessed via total failure.
+      const wpscanEligible = context.authorizationMode === 'audit' && this.config.wpscanEnabled;
+      context.setEnrichment(MAINTENANCE_COVERAGE_ENRICHMENT, this.computeCoverage(orgOutcomes));
+      context.setEnrichment(
+        SECURITY_COVERAGE_ENRICHMENT,
+        wpscanEligible ? this.computeCoverage(wpscanOutcomes) : 'not_assessed',
+      );
+
+      pageSpeedResult = context.getEnrichment(PAGESPEED_ENRICHMENT) as PageSpeedResult | undefined;
     }
 
     const findings: Finding[] = isWordPress
@@ -149,13 +198,12 @@ export class AuditOrchestrator {
       : [this.buildNotWordPressFinding(target)];
     const status: AuditStatus = limitations.length > 0 ? 'partial' : 'completed';
 
-    const scores = calculateScores(findings);
-    context.setScoreSummary(scores);
-
     const insights = generateInsights(findings);
     context.setInsights(insights);
 
     const counters = calculateReportCounters(findings);
+    const ratings = isWordPress ? calculateRatings(context, findings, counters) : undefined;
+    const measuredScores = calculateMeasuredScores(pageSpeedResult);
 
     const result: AuditResult = {
       id: randomUUID(),
@@ -170,7 +218,8 @@ export class AuditOrchestrator {
       scannerResults: context.getScannerResults(),
       findings,
       insights,
-      scores,
+      ...(ratings ? { ratings } : {}),
+      measuredScores,
       counters,
       limitations,
     };
@@ -238,12 +287,12 @@ export class AuditOrchestrator {
    * run to 'partial'; a slug simply not being on wordpress.org
    * (closed/premium/custom) is a normal outcome and is not a limitation.
    */
-  private async enrichPlugins(context: AuditContext): Promise<string | undefined> {
+  private async enrichPlugins(context: AuditContext): Promise<EnrichmentOutcome> {
     const plugins = this.getScannerData<{ plugins: DetectedPlugin[] }>(
       context,
       'plugin-scanner',
     )?.plugins;
-    if (!plugins) return undefined;
+    if (!plugins) return { attempted: 0, succeeded: 0 };
 
     return this.enrichBySlug(
       context,
@@ -254,12 +303,12 @@ export class AuditOrchestrator {
     );
   }
 
-  private async enrichThemes(context: AuditContext): Promise<string | undefined> {
+  private async enrichThemes(context: AuditContext): Promise<EnrichmentOutcome> {
     const themes = this.getScannerData<{ themes: DetectedTheme[] }>(
       context,
       'theme-scanner',
     )?.themes;
-    if (!themes) return undefined;
+    if (!themes) return { attempted: 0, succeeded: 0 };
 
     return this.enrichBySlug(
       context,
@@ -271,14 +320,27 @@ export class AuditOrchestrator {
   }
 
   /** The core version -> status map is a single global lookup, cached regardless of what was detected locally. */
-  private async enrichCore(context: AuditContext): Promise<string | undefined> {
+  private async enrichCore(context: AuditContext): Promise<EnrichmentOutcome> {
     const result = await this.wordPressOrgClient.getCoreStableVersions();
     if (!result.ok) {
       this.logger.warn({ error: result.error.message }, 'wordpress-org core lookup failed');
-      return 'wordpress-org core version lookup failed';
+      return { attempted: 1, succeeded: 0, limitation: 'wordpress-org core version lookup failed' };
     }
     context.setEnrichment(WORDPRESS_ORG_CORE_ENRICHMENT, result.value);
-    return undefined;
+    return { attempted: 1, succeeded: 1 };
+  }
+
+  /**
+   * Aggregates attempted/succeeded across plugin+theme+core calls for one
+   * enrichment track (WordPress.org or WPScan) into the binary signal
+   * rating-engine.ts actually needs: `not_assessed` only when there was
+   * something to check and *every single* lookup failed; `assessed`
+   * otherwise (including the vacuous case of nothing to check at all).
+   */
+  private computeCoverage(outcomes: readonly EnrichmentOutcome[]): 'assessed' | 'not_assessed' {
+    const attempted = outcomes.reduce((sum, outcome) => sum + outcome.attempted, 0);
+    const succeeded = outcomes.reduce((sum, outcome) => sum + outcome.succeeded, 0);
+    return attempted > 0 && succeeded === 0 ? 'not_assessed' : 'assessed';
   }
 
   /**
@@ -289,14 +351,16 @@ export class AuditOrchestrator {
    * WPScan integration leaves no misleading "we checked, found nothing"
    * enrichment entry (the client itself would return ok([]) either way).
    */
-  private async enrichPluginVulnerabilities(context: AuditContext): Promise<string | undefined> {
-    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+  private async enrichPluginVulnerabilities(context: AuditContext): Promise<EnrichmentOutcome> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) {
+      return { attempted: 0, succeeded: 0 };
+    }
 
     const plugins = this.getScannerData<{ plugins: DetectedPlugin[] }>(
       context,
       'plugin-scanner',
     )?.plugins;
-    if (!plugins) return undefined;
+    if (!plugins) return { attempted: 0, succeeded: 0 };
 
     return this.enrichBySlug(
       context,
@@ -307,14 +371,16 @@ export class AuditOrchestrator {
     );
   }
 
-  private async enrichThemeVulnerabilities(context: AuditContext): Promise<string | undefined> {
-    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+  private async enrichThemeVulnerabilities(context: AuditContext): Promise<EnrichmentOutcome> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) {
+      return { attempted: 0, succeeded: 0 };
+    }
 
     const themes = this.getScannerData<{ themes: DetectedTheme[] }>(
       context,
       'theme-scanner',
     )?.themes;
-    if (!themes) return undefined;
+    if (!themes) return { attempted: 0, succeeded: 0 };
 
     return this.enrichBySlug(
       context,
@@ -326,22 +392,24 @@ export class AuditOrchestrator {
   }
 
   /** Same audit-only/token gating as the plugin/theme WPScan lookups above. */
-  private async enrichCoreVulnerabilities(context: AuditContext): Promise<string | undefined> {
-    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) return undefined;
+  private async enrichCoreVulnerabilities(context: AuditContext): Promise<EnrichmentOutcome> {
+    if (context.authorizationMode !== 'audit' || !this.config.wpscanEnabled) {
+      return { attempted: 0, succeeded: 0 };
+    }
 
     const coreVersion = this.getScannerData<{ version: VersionInfo | undefined }>(
       context,
       'core-version-scanner',
     )?.version;
-    if (!coreVersion) return undefined;
+    if (!coreVersion) return { attempted: 0, succeeded: 0 };
 
     const result = await this.wpscanClient.getCoreVulnerabilities(coreVersion.value);
     if (!result.ok) {
       this.logger.warn({ error: result.error.message }, 'wpscan core vulnerability lookup failed');
-      return 'wpscan core vulnerability lookup failed';
+      return { attempted: 1, succeeded: 0, limitation: 'wpscan core vulnerability lookup failed' };
     }
     context.setEnrichment(WPSCAN_CORE_ENRICHMENT, result.value);
-    return undefined;
+    return { attempted: 1, succeeded: 1 };
   }
 
   /**
@@ -375,8 +443,8 @@ export class AuditOrchestrator {
     lookup: (slug: string) => Promise<Result<T | undefined, Error>>,
     enrichmentKey: string,
     label: string,
-  ): Promise<string | undefined> {
-    if (items.length === 0) return undefined;
+  ): Promise<EnrichmentOutcome> {
+    if (items.length === 0) return { attempted: 0, succeeded: 0 };
 
     const lookups = await Promise.all(
       items.map(async (item) => ({ slug: item.slug, result: await lookup(item.slug) })),
@@ -394,9 +462,13 @@ export class AuditOrchestrator {
     }
 
     context.setEnrichment(enrichmentKey, enrichment);
-    return failureCount > 0
-      ? `${label} lookup failed for ${failureCount} of ${items.length} item(s)`
-      : undefined;
+    return {
+      attempted: items.length,
+      succeeded: items.length - failureCount,
+      ...(failureCount > 0
+        ? { limitation: `${label} lookup failed for ${failureCount} of ${items.length} item(s)` }
+        : {}),
+    };
   }
 
   private buildNotWordPressFinding(target: Target): Finding {

@@ -142,6 +142,7 @@ describe('generateFindings', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
+        category: 'infrastructure',
         severity: 'high',
         recommendationKey: 'finding.tls.invalidCertificate.recommendation',
       });
@@ -164,12 +165,49 @@ describe('generateFindings', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
+        category: 'infrastructure',
         severity: 'medium',
         recommendationKey: 'finding.tls.outdatedProtocol.recommendation',
       });
     });
 
     it('flags nothing for TLSv1.3', () => {
+      const context = createContext();
+      context.addScannerResult(tlsResult(VALID_TLS));
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('HTTPS availability', () => {
+    it('flags a genuinely HTTP-only site (no tls-scanner result at all)', () => {
+      const context = buildTestContext({
+        authorizationMode: 'audit',
+        target: 'http://example.com',
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        category: 'infrastructure',
+        severity: 'high',
+        recommendationKey: 'finding.infrastructure.noHttps.recommendation',
+      });
+    });
+
+    it('flags nothing when the effective (post-redirect) URL is https, even if the original input was http', () => {
+      const context = buildTestContext({
+        authorizationMode: 'audit',
+        target: 'http://example.com',
+      });
+      context.setHttpResponse({ url: 'https://example.com/', status: 200, headers: {}, body: '' });
+      context.addScannerResult(tlsResult(VALID_TLS));
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+
+    it('flags nothing for a plain https:// target', () => {
       const context = createContext();
       context.addScannerResult(tlsResult(VALID_TLS));
 
@@ -335,7 +373,7 @@ describe('generateFindings', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       });
       // Regression: the outdatedStatus evidence template interpolates {{slug}} —
       // it must actually be in params, or the rendered report shows the literal "{{slug}}".
@@ -414,7 +452,7 @@ describe('generateFindings', () => {
       expect(findings[0]!.component).toMatchObject({
         kind: 'plugin',
         slug: 'sitepress-multilingual-cms',
-        vulnerabilitySeverities: ['critical'],
+        vulnerabilities: [{ severity: 'critical', confirmed: false }],
       });
       // recommendationParams must carry {{slug}} — the recommendation message interpolates it
       expect(findings[0]!.recommendationParams).toEqual({ slug: 'sitepress-multilingual-cms' });
@@ -586,7 +624,7 @@ describe('generateFindings', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: true,
-        vulnerabilitySeverities: ['high'],
+        vulnerabilities: [{ severity: 'high', confirmed: true }],
       });
     });
   });
@@ -853,7 +891,7 @@ describe('generateFindings', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0]!.severity).toBe('critical');
-      expect(findings[0]!.component?.vulnerabilitySeverities).toEqual([
+      expect(findings[0]!.component?.vulnerabilities.map((v) => v.severity)).toEqual([
         'low',
         'critical',
         'medium',
@@ -889,7 +927,10 @@ describe('generateFindings', () => {
       const findings = generateFindings(context);
 
       expect(findings[0]!.severity).toBe('high');
-      expect(findings[0]!.component?.vulnerabilitySeverities).toEqual(['medium', 'medium']);
+      expect(findings[0]!.component?.vulnerabilities.map((v) => v.severity)).toEqual([
+        'medium',
+        'medium',
+      ]);
     });
 
     it('does not escalate a single vulnerability — one medium-severity CVE stays medium', () => {
@@ -967,7 +1008,7 @@ describe('generateFindings', () => {
       ).length;
 
       expect(vulnEvidenceCount).toBe(1);
-      expect(findings[0]!.component?.vulnerabilitySeverities).toHaveLength(1);
+      expect(findings[0]!.component?.vulnerabilities).toHaveLength(1);
     });
   });
 });
@@ -995,7 +1036,10 @@ describe('calculateReportCounters', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: false,
-        vulnerabilitySeverities: ['critical', 'medium'],
+        vulnerabilities: [
+          { severity: 'critical', confirmed: true },
+          { severity: 'medium', confirmed: true },
+        ],
       },
     });
     // Shares CVE-2024-1111 with the plugin's Vuln A — must collapse to one in the unique count.
@@ -1012,7 +1056,7 @@ describe('calculateReportCounters', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: false,
-        vulnerabilitySeverities: ['high'],
+        vulnerabilities: [{ severity: 'high', confirmed: true }],
       },
     });
     const themeFinding = createFinding({
@@ -1028,7 +1072,7 @@ describe('calculateReportCounters', () => {
         kind: 'theme',
         slug: 'twentytwentyfour',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       },
     });
     const headerFinding = createFinding({

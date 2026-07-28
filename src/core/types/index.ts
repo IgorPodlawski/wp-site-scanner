@@ -5,6 +5,7 @@ export * from './finding.js';
 export * from './insight.js';
 export * from './scanner.js';
 export * from './score.js';
+export * from './rating.js';
 export * from './report-counters.js';
 export * from './target.js';
 export * from './audit-context.js';

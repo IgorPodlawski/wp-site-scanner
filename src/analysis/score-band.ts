@@ -1,9 +1,8 @@
 /**
- * Shared 0-100 "worse to better" scale used both by our own category scores
- * (scoring-engine.ts, starts at 100 and is deducted) and by PageSpeed's
- * Lighthouse performance score — same thresholds Google itself uses for its
- * own bucketing, reused here so the report speaks about both kinds of score
- * with one consistent vocabulary instead of two unrelated cutoffs.
+ * 0-100 "worse to better" banding for numbers backed by a real external
+ * measurement (currently just PageSpeed's Lighthouse performance score —
+ * see scoring-engine.ts's `calculateMeasuredScores`). Same thresholds
+ * Google itself uses for its own bucketing.
  */
 export type ScoreBand = 'good' | 'fair' | 'poor';
 

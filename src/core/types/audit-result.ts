@@ -4,7 +4,8 @@ import type { Target } from './target.js';
 import type { ScannerResult } from './scanner.js';
 import type { Finding } from './finding.js';
 import type { Insight } from './insight.js';
-import type { ScoreSummary } from './score.js';
+import type { MeasuredScoreSummary } from './score.js';
+import type { RatingSummary } from './rating.js';
 import type { ReportCounters } from './report-counters.js';
 import type { AuditStatus } from './audit-context.js';
 
@@ -26,7 +27,10 @@ export interface AuditResult {
   readonly scannerResults: readonly ScannerResult[];
   readonly findings: readonly Finding[];
   readonly insights: readonly Insight[];
-  readonly scores?: ScoreSummary;
+  /** Qualitative Security/Maintenance/Infrastructure/Overall levels — see rating-engine.ts. */
+  readonly ratings?: RatingSummary;
+  /** Numeric scores backed by a real external measurement (currently just Performance/Lighthouse) — see scoring-engine.ts. */
+  readonly measuredScores?: MeasuredScoreSummary;
   readonly counters?: ReportCounters;
   /** e.g. "PageSpeed enrichment unavailable" — surfaced in the report's limitations section. */
   readonly limitations: string[];

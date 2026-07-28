@@ -3,7 +3,7 @@ import { TlsScanner } from '@scanners/tls-scanner.js';
 import type { DefaultAuditContext } from '@core/types/audit-context.js';
 import { SsrfRejectedError } from '@core/errors.js';
 import type { TlsProbe, TlsProbeOptions, TlsProbeResult } from '@core/http/tls-probe.js';
-import { buildTestContext } from '../support/test-context.js';
+import { buildTestContext, buildHttpResponse } from '../support/test-context.js';
 
 function createContext(targetInput: string): DefaultAuditContext {
   return buildTestContext({ target: targetInput });
@@ -84,5 +84,30 @@ describe('TlsScanner', () => {
     const context = createContext('https://example.com');
 
     expect(scanner.supports(context)).toBe(true);
+  });
+
+  it('supports() is true for an http:// target that redirects to https (effective URL, not the raw input)', () => {
+    const scanner = new TlsScanner(1000, { probe: async () => VALID_RESULT });
+    const context = createContext('http://example.com');
+    context.setHttpResponse(buildHttpResponse('', { url: 'https://example.com/' }));
+
+    expect(scanner.supports(context)).toBe(true);
+  });
+
+  it('probes the effective (post-redirect) hostname, not the original http:// input', async () => {
+    let receivedOptions: TlsProbeOptions | undefined;
+    const probe: TlsProbe = {
+      probe: async (options) => {
+        receivedOptions = options;
+        return VALID_RESULT;
+      },
+    };
+    const scanner = new TlsScanner(1000, probe, async () => ['203.0.113.10']);
+    const context = createContext('http://example.com');
+    context.setHttpResponse(buildHttpResponse('', { url: 'https://example.com/' }));
+
+    await scanner.run(context);
+
+    expect(receivedOptions?.port).toBe(443);
   });
 });

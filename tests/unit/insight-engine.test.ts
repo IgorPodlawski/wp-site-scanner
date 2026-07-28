@@ -55,7 +55,7 @@ describe('generateInsights', () => {
       id: 'f1',
       category: 'maintenance',
       recommendationKey: 'finding.component.plugin.outdated.recommendation',
-      component: { kind: 'plugin', slug: 'akismet', isOutdated: true, vulnerabilitySeverities: [] },
+      component: { kind: 'plugin', slug: 'akismet', isOutdated: true, vulnerabilities: [] },
     });
     const f2 = finding({
       id: 'f2',
@@ -65,7 +65,7 @@ describe('generateInsights', () => {
         kind: 'theme',
         slug: 'twentytwentyfour',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       },
     });
     const f3 = finding({
@@ -78,7 +78,7 @@ describe('generateInsights', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: true,
-        vulnerabilitySeverities: [],
+        vulnerabilities: [],
       },
     });
 
@@ -103,7 +103,7 @@ describe('generateInsights', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: false,
-        vulnerabilitySeverities: ['critical'],
+        vulnerabilities: [{ severity: 'critical', confirmed: true }],
       },
     });
     const f2 = finding({
@@ -116,7 +116,7 @@ describe('generateInsights', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: false,
-        vulnerabilitySeverities: ['high'],
+        vulnerabilities: [{ severity: 'high', confirmed: true }],
       },
     });
 

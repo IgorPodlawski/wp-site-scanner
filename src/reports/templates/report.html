@@ -64,6 +64,24 @@
       .score-poor {
         background: #dc2626;
       }
+      .rating-clear {
+        background: #15803d;
+      }
+      .rating-attention {
+        background: #d97706;
+      }
+      .rating-urgent {
+        background: #dc2626;
+      }
+      .rating-not_assessed {
+        background: #6b7280;
+      }
+      .rating-reasons {
+        margin: 0.3rem 0 0;
+        padding-left: 1.1rem;
+        font-size: 0.85rem;
+        color: #444;
+      }
       .scores-scale-note {
         color: #555;
         font-size: 0.85rem;
@@ -144,8 +162,8 @@
   </head>
   <body>
     <h1>{{REPORT_TITLE}}</h1>
-    {{SUMMARY_SECTION}} {{SCORES_SECTION}} {{INSIGHTS_SECTION}} {{FINDINGS_SECTION}}
-    {{PLUGINS_SECTION}} {{THEME_SECTION}} {{LIMITATIONS_SECTION}}
+    {{SUMMARY_SECTION}} {{RATINGS_SECTION}} {{MEASURED_SCORES_SECTION}} {{INSIGHTS_SECTION}}
+    {{FINDINGS_SECTION}} {{PLUGINS_SECTION}} {{THEME_SECTION}} {{LIMITATIONS_SECTION}}
     <p class="disclaimer">{{DISCLAIMER}}</p>
   </body>
 </html>

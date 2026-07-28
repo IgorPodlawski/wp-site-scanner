@@ -4,8 +4,6 @@ import type { Target } from './target.js';
 import type { ScannerResult } from './scanner.js';
 import type { Finding } from './finding.js';
 import type { Insight } from './insight.js';
-import type { ScoreSummary } from './score.js';
-
 export type AuditStatus = 'completed' | 'partial' | 'failed';
 
 /**
@@ -37,9 +35,6 @@ export interface AuditContext {
   addFinding(finding: Finding): void;
   getFindings(): readonly Finding[];
 
-  setScoreSummary(scores: ScoreSummary): void;
-  getScoreSummary(): ScoreSummary | undefined;
-
   setInsights(insights: readonly Insight[]): void;
   getInsights(): readonly Insight[] | undefined;
 }
@@ -69,7 +64,6 @@ export class DefaultAuditContext implements AuditContext {
   private wordPressDetected: boolean | undefined;
   private enrichments = new Map<string, unknown>();
   private findings: Finding[] = [];
-  private scoreSummary: ScoreSummary | undefined;
   private insights: readonly Insight[] | undefined;
 
   constructor(init: AuditContextInit) {
@@ -129,17 +123,6 @@ export class DefaultAuditContext implements AuditContext {
 
   getFindings(): readonly Finding[] {
     return this.findings;
-  }
-
-  setScoreSummary(scores: ScoreSummary): void {
-    if (this.scoreSummary !== undefined) {
-      throw new Error('AuditContext.scoreSummary is write-once and has already been set.');
-    }
-    this.scoreSummary = scores;
-  }
-
-  getScoreSummary(): ScoreSummary | undefined {
-    return this.scoreSummary;
   }
 
   setInsights(insights: readonly Insight[]): void {
