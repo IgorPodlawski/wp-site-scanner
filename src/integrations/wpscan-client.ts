@@ -16,10 +16,22 @@ type ComponentKind = 'plugins' | 'themes';
  * Distinguished from a generic failure so the client can trip its
  * in-run circuit breaker (see `rateLimited` below) instead of treating
  * this the same as a transient network error worth retrying per-slug.
+ *
+ * `skipped: true` produces a deliberately different message — otherwise
+ * every remaining slug in a run logs the exact same "rate limit reached"
+ * text as the one real 429, and from the terminal alone there's no way
+ * to tell "we just got rate-limited" apart from "we already knew and
+ * skipped this one without touching the network" (reported directly:
+ * a wall of identical-looking warnings reads as "still hammering the
+ * API" even though only the first one actually did).
  */
 class WpscanRateLimitError extends Error {
-  constructor() {
-    super('WPScan API rate limit reached (HTTP 429)');
+  constructor(skipped: boolean = false) {
+    super(
+      skipped
+        ? 'WPScan rate limit already reached this run — skipped without contacting the API'
+        : 'WPScan API rate limit reached (HTTP 429)',
+    );
   }
 }
 
@@ -161,7 +173,7 @@ export class WpscanClient {
     token: string,
   ): Promise<Result<WpscanVulnerability[], Error>> {
     if (this.rateLimited) {
-      return err(new WpscanRateLimitError());
+      return err(new WpscanRateLimitError(true));
     }
 
     const versionKey = version.replace(/\./g, '');
@@ -190,7 +202,7 @@ export class WpscanClient {
     token: string,
   ): Promise<Result<WpscanVulnerability[], Error>> {
     if (this.rateLimited) {
-      return err(new WpscanRateLimitError());
+      return err(new WpscanRateLimitError(true));
     }
 
     const cacheKey = buildCacheKey('wpscan', kind, slug, 'latest');

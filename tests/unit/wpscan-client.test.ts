@@ -179,6 +179,25 @@ describe('WpscanClient rate-limit circuit breaker', () => {
     expect(callCount).toBe(callsAfterFirstLookup);
   });
 
+  it('gives the real 429 and the subsequent breaker-skips distinct error messages, so a wall of identical warnings in the log does not look like repeated real attempts', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async () => jsonResponse(429, { status: 'rate limit hit' }),
+    };
+    const client = new WpscanClient(ENABLED_CONFIG, httpClient, OPTIONS, inMemoryCache());
+
+    const first = await client.getPluginVulnerabilities('akismet');
+    const second = await client.getPluginVulnerabilities('another-plugin');
+
+    expect(first.ok).toBe(false);
+    expect(second.ok).toBe(false);
+    if (first.ok || second.ok) throw new Error('unreachable');
+    expect(first.error.message).toBe('WPScan API rate limit reached (HTTP 429)');
+    expect(second.error.message).toBe(
+      'WPScan rate limit already reached this run — skipped without contacting the API',
+    );
+    expect(first.error.message).not.toBe(second.error.message);
+  });
+
   it('shares the breaker across plugin/theme/core lookups — a 429 on one kind stops all of them', async () => {
     let callCount = 0;
     const httpClient: HttpClient = {
