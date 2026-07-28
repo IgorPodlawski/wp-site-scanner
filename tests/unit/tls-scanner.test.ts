@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TlsScanner } from '@scanners/tls-scanner.js';
 import type { DefaultAuditContext } from '@core/types/audit-context.js';
-import { SsrfRejectedError } from '@core/errors.js';
+import { SsrfRejectedError, UnreachableTargetError } from '@core/errors.js';
 import type { TlsProbe, TlsProbeOptions, TlsProbeResult } from '@core/http/tls-probe.js';
 import { buildTestContext, buildHttpResponse } from '../support/test-context.js';
 
@@ -70,6 +70,25 @@ describe('TlsScanner', () => {
     const context = createContext('https://example.com');
 
     await expect(scanner.run(context)).rejects.toThrow(SsrfRejectedError);
+  });
+
+  it('degrades to a scanner-level error instead of failing the whole audit when the TLS probe itself is unreachable', async () => {
+    // A site that redirects http->https but doesn't accept a direct TLS
+    // connection on 443 used to crash the entire process — the homepage was
+    // already fetched successfully via a different path, so this scanner's
+    // own probe failing must not be treated as "the target is unreachable."
+    const probe: TlsProbe = {
+      probe: async () => {
+        throw new UnreachableTargetError('example.com:443', new Error('ECONNREFUSED'));
+      },
+    };
+    const scanner = new TlsScanner(1000, probe, async () => ['203.0.113.10']);
+    const context = createContext('https://example.com');
+
+    const result = await scanner.run(context);
+
+    expect(result.status).toBe('error');
+    expect(result.error?.message).toContain('Unreachable target');
   });
 
   it('supports() is false for a plain http:// target (nothing to probe)', () => {

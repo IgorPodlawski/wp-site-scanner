@@ -6,6 +6,7 @@ import {
   type ResolveHostname,
 } from '../core/http/http-client.js';
 import { NodeTlsProbe, type TlsProbe } from '../core/http/tls-probe.js';
+import { UnreachableTargetError } from '../core/errors.js';
 
 const DEFAULT_TLS_PORT = 443;
 
@@ -41,20 +42,43 @@ export class TlsScanner implements Scanner {
     const startedAt = Date.now();
     const url = new URL(effectiveUrl(context));
 
-    const resolvedIp = await resolveAndValidateAddress(url, this.resolveHostname);
-    const port = url.port ? Number(url.port) : DEFAULT_TLS_PORT;
-    const result = await this.probe.probe({
-      hostname: url.hostname,
-      resolvedIp,
-      port,
-      timeoutMs: this.timeoutMs,
-    });
+    // A plain connection failure here is scoped to *this scanner's own* TLS
+    // probe on port 443 — it does not mean the target itself is unreachable
+    // (the homepage was already fetched successfully via a completely
+    // different path to get here at all). Caught and degraded to a
+    // scanner-level error rather than left to propagate as
+    // UnreachableTargetError, which is an AuditFailureError and would
+    // otherwise fail the *entire* audit — found live: a site that redirects
+    // http->https but doesn't accept a direct TLS connection on 443 crashed
+    // the whole run. SsrfRejectedError (DNS rebinding between the earlier
+    // fetch and this probe) deliberately still propagates as fatal — that's
+    // a genuine security-relevant refusal, not a mere connectivity hiccup.
+    try {
+      const resolvedIp = await resolveAndValidateAddress(url, this.resolveHostname);
+      const port = url.port ? Number(url.port) : DEFAULT_TLS_PORT;
+      const result = await this.probe.probe({
+        hostname: url.hostname,
+        resolvedIp,
+        port,
+        timeoutMs: this.timeoutMs,
+      });
 
-    return {
-      scannerName: this.name,
-      status: 'ok',
-      data: result,
-      durationMs: Date.now() - startedAt,
-    };
+      return {
+        scannerName: this.name,
+        status: 'ok',
+        data: result,
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      if (!(error instanceof UnreachableTargetError)) {
+        throw error;
+      }
+      return {
+        scannerName: this.name,
+        status: 'error',
+        error: { message: error.message, cause: error },
+        durationMs: Date.now() - startedAt,
+      };
+    }
   }
 }
