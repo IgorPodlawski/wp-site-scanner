@@ -259,6 +259,28 @@ function renderComponentHeading(t: Translate, component: ComponentFindingInfo): 
   return `<h3 class="finding-title">${title}</h3>`;
 }
 
+/**
+ * Missing security headers and header info-disclosure are hygiene
+ * recommendations, not risk findings — they don't drive any rating (see
+ * rating-engine.ts's Security rule) and don't surface as headline insights
+ * (see insight-engine.ts). Still real Findings (same JSON, same data model)
+ * — just routed to a separate, visually softer section instead of the risk
+ * Findings list, so a genuinely clean site (no known vulnerabilities) isn't
+ * made to look risky by a missing X-Frame-Options header sitting next to a
+ * critical CVE. Same predicate insight-engine.ts used to use before those
+ * rules were removed.
+ */
+const HYGIENE_RECOMMENDATION_PREFIXES = [
+  'finding.header.missing',
+  'finding.header.infoDisclosure',
+];
+
+function isHygieneFinding(finding: Finding): boolean {
+  return HYGIENE_RECOMMENDATION_PREFIXES.some((prefix) =>
+    finding.recommendationKey.startsWith(prefix),
+  );
+}
+
 function renderFindingsSection(findings: readonly Finding[], t: Translate): string {
   if (findings.length === 0) {
     return `<h2>${text(t, 'report.section.findings')}</h2><p class="empty-state">${text(t, 'report.findings.empty')}</p>`;
@@ -293,6 +315,35 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
     .join('');
 
   return `<h2>${text(t, 'report.section.findings')}</h2>${cards}`;
+}
+
+/**
+ * Deliberately lighter-weight than a risk finding card: no severity badge,
+ * no category/confidence meta line, softer tone throughout ("optional
+ * hardening", never "missing"/"vulnerable"). Omitted entirely when there's
+ * nothing to suggest, rather than showing an empty section.
+ */
+function renderHygieneSection(findings: readonly Finding[], t: Translate): string {
+  if (findings.length === 0) return '';
+
+  const items = findings
+    .map((finding) => {
+      const evidence = finding.evidence
+        .map((e) => `<p class="hygiene-evidence">${text(t, e.descriptionKey, e.params)}</p>`)
+        .join('');
+      return (
+        `<div class="hygiene-item">` +
+        `<p class="hygiene-title">${text(t, finding.recommendationKey, finding.recommendationParams)}</p>` +
+        evidence +
+        `</div>`
+      );
+    })
+    .join('');
+
+  return (
+    `<h2>${text(t, 'report.section.hygiene')}</h2>` +
+    `<p class="hygiene-intro">${text(t, 'report.section.hygiene.intro')}</p>${items}`
+  );
 }
 
 function renderComponentLine(t: Translate, slug: string, version: string | undefined): string {
@@ -359,6 +410,9 @@ export async function renderHtml(result: AuditResult, lang: Locale): Promise<str
   const t = buildTranslator(messages);
   const template = await readFile(TEMPLATE_PATH, 'utf-8');
 
+  const riskFindings = result.findings.filter((finding) => !isHygieneFinding(finding));
+  const hygieneFindings = result.findings.filter(isHygieneFinding);
+
   const replacements: Record<string, string> = {
     LANG: lang,
     REPORT_TITLE: text(t, 'report.summary.title'),
@@ -366,7 +420,8 @@ export async function renderHtml(result: AuditResult, lang: Locale): Promise<str
     RATINGS_SECTION: renderRatingsSection(result.ratings, t),
     MEASURED_SCORES_SECTION: renderMeasuredScoresSection(result.measuredScores, t),
     INSIGHTS_SECTION: renderInsightsSection(result.insights, t),
-    FINDINGS_SECTION: renderFindingsSection(result.findings, t),
+    FINDINGS_SECTION: renderFindingsSection(riskFindings, t),
+    HYGIENE_SECTION: renderHygieneSection(hygieneFindings, t),
     PLUGINS_SECTION: renderPluginsSection(result, t),
     THEME_SECTION: renderThemeSection(result, t),
     LIMITATIONS_SECTION: renderLimitationsSection(result.limitations, t),

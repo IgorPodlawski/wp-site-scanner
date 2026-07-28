@@ -108,6 +108,75 @@ describe('renderHtml', () => {
     expect(html).toContain('88/100');
     expect(html).toContain('This audit identified 1 issue(s)');
     expect(html).toContain('tls-scanner failed: handshake failed');
+    // Qualitative ratings render as a level badge plus the concrete "why" reasons.
+    expect(html).toContain('class="badge rating-attention"');
+    expect(html).toContain('class="badge rating-clear"');
+    expect(html).toContain('class="rating-reasons"');
+    expect(html).toContain('Needs attention');
+    expect(html).toContain('No significant concerns');
+  });
+
+  describe('hygiene section', () => {
+    function headerFinding(): Finding {
+      return createFinding({
+        id: 'f1',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'low',
+        sourceLayer: 1,
+        businessImpact: 'weak',
+        recommendationKey: 'finding.header.missingHsts.recommendation',
+        evidence: [{ descriptionKey: 'finding.header.missingHsts.evidence' }],
+      });
+    }
+
+    function vulnerabilityFinding(): Finding {
+      return createFinding({
+        id: 'f2',
+        category: 'security',
+        confidence: 'confirmed',
+        severity: 'critical',
+        sourceLayer: 'third-party',
+        businessImpact: 'strong',
+        recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
+        evidence: [{ descriptionKey: 'finding.component.plugin.versionInfo.evidence' }],
+        component: {
+          kind: 'plugin',
+          slug: 'akismet',
+          isOutdated: false,
+          vulnerabilities: [{ severity: 'critical', confirmed: true }],
+        },
+      });
+    }
+
+    it('routes a missing-header finding to the hygiene section, not the risk findings list', async () => {
+      const html = await renderHtml(baseResult({ findings: [headerFinding()] }), 'en');
+
+      expect(html).toContain('class="hygiene-item"');
+      expect(html).not.toContain('class="finding"');
+      // The main findings section still shows its empty state — a header-only
+      // site has no *risk* findings.
+      expect(html).toContain('No issues were identified.');
+      expect(html).toContain('Quick Wins');
+    });
+
+    it('keeps a real vulnerability in the risk findings list while a header finding goes to hygiene', async () => {
+      const html = await renderHtml(
+        baseResult({ findings: [headerFinding(), vulnerabilityFinding()] }),
+        'en',
+      );
+
+      expect(html).toContain('class="finding"');
+      expect(html).toContain('class="hygiene-item"');
+      expect(html).not.toContain('No issues were identified.');
+    });
+
+    it('omits the hygiene section entirely when there is nothing to suggest', async () => {
+      const html = await renderHtml(baseResult({ findings: [vulnerabilityFinding()] }), 'en');
+
+      expect(html).not.toContain('class="hygiene-item"');
+      expect(html).not.toContain('Quick Wins');
+    });
   });
 
   describe('score readability', () => {

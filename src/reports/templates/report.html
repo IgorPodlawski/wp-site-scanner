@@ -143,6 +143,30 @@
         margin-bottom: 0.75rem;
         background: #f8fafc;
       }
+      .hygiene-intro {
+        color: #555;
+        font-size: 0.85rem;
+        margin-top: -0.25rem;
+        margin-bottom: 0.75rem;
+      }
+      .hygiene-item {
+        border: 1px dashed #ddd;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.6rem;
+        background: #fafafa;
+        break-inside: avoid;
+      }
+      .hygiene-title {
+        margin: 0 0 0.3rem 0;
+        font-weight: bold;
+        color: #444;
+      }
+      .hygiene-evidence {
+        margin: 0.2rem 0;
+        font-size: 0.9rem;
+        color: #555;
+      }
       .empty-state {
         color: #777;
       }
@@ -163,7 +187,8 @@
   <body>
     <h1>{{REPORT_TITLE}}</h1>
     {{SUMMARY_SECTION}} {{RATINGS_SECTION}} {{MEASURED_SCORES_SECTION}} {{INSIGHTS_SECTION}}
-    {{FINDINGS_SECTION}} {{PLUGINS_SECTION}} {{THEME_SECTION}} {{LIMITATIONS_SECTION}}
+    {{FINDINGS_SECTION}} {{HYGIENE_SECTION}} {{PLUGINS_SECTION}} {{THEME_SECTION}}
+    {{LIMITATIONS_SECTION}}
     <p class="disclaimer">{{DISCLAIMER}}</p>
   </body>
 </html>
