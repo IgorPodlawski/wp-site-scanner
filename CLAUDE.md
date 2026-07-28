@@ -177,7 +177,7 @@ Responsibilities:
 - collect results
 - short-circuit if the target is not WordPress
 - invoke enrichment
-- generate findings, scores, sales insights
+- generate findings, ratings, measured scores, sales insights
 - generate reports and persist output
 
 ---
@@ -215,7 +215,7 @@ Scanners never call each other. Communication happens only through AuditContext.
 12. Check TLS
 13. Enrich via external APIs
 14. Generate findings
-15. Calculate scores
+15. Calculate ratings (qualitative) and measured scores (numeric, Performance only)
 16. Generate sales insights
 17. Save JSON (+ SQLite from Phase 4)
 18. Generate HTML
@@ -296,11 +296,11 @@ Phase 1–3: cache as JSON files under `CACHE_DIR`. Phase 4: may move into SQLit
 
 **AuditContext** — mutable runtime state passed through the pipeline. It grows only through **controlled, append-style writes** by the orchestrator between stages (e.g. `context.addScannerResult(...)`). No scanner mutates another scanner's data; no free-form mutation. Treat each field as write-once per producing stage.
 
-Contains: target, authorization mode, consent artifact, HTTP response, HTML, detected plugins, detected theme, endpoint results, API enrichments, findings, scores, insights, scanner results.
+Contains: target, authorization mode, consent artifact, HTTP response, HTML, detected plugins, detected theme, endpoint results, API enrichments, findings, insights, scanner results — plus two coverage flags (`SECURITY_COVERAGE_ENRICHMENT`, `MAINTENANCE_COVERAGE_ENRICHMENT`, written via the same `context.setEnrichment(...)` mechanism as every other cross-stage signal) that tell `rating-engine.ts` whether WPScan/wordpress.org actually ran this pass, independent of whether they found anything.
 
 **AuditResult** — the immutable persisted output. Do not mix the two.
 
-Implementation note: `findings` and `scores`/`insights` are handled inconsistently today — `AuditContext.addFinding()`/`getFindings()` exist on the interface but `AuditOrchestrator.run()` never actually calls them (it builds the findings array locally from `generateFindings(context)` and puts it straight into `AuditResult`); `setScoreSummary()`/`setInsights()`, by contrast, are actually called. Not a deliberate design choice — just an inconsistency nobody has fixed yet. If you touch this, prefer making `addFinding` actually used (or removing it) over adding a third pattern.
+Implementation note: `findings` is handled inconsistently today — `AuditContext.addFinding()`/`getFindings()` exist on the interface but `AuditOrchestrator.run()` never actually calls them (it builds the findings array locally from `generateFindings(context)` and puts it straight into `AuditResult`); `setInsights()`, by contrast, is actually called. Not a deliberate design choice — just an inconsistency nobody has fixed yet. If you touch this, prefer making `addFinding` actually used (or removing it) over adding a third pattern. `ratings` and `measuredScores` follow the same pattern as `counters` — computed by the orchestrator and put straight onto `AuditResult`, never routed through `AuditContext` (there used to be a `setScoreSummary()`/`getScoreSummary()` pair on the interface for the old point-based scores; removed rather than extended to a third summary type, per the note above).
 
 ---
 
@@ -327,45 +327,78 @@ Findings are interpreted problems, never raw scanner output.
 
 Every finding contains:
 
-- `category`
+- `category` — `security | maintenance | performance | seo | infrastructure`
 - `severity` — `info | low | medium | high | critical`
 - `confidence` — `inferred | corroborated | confirmed`
 - `sourceLayer` — `1 | 2 | 3 | third-party`
 - `businessImpact` — `none | weak | medium | strong`
 - `recommendation`
 - `evidence` — the concrete observation(s) supporting it
-- `component` (optional) — present only on a merged WordPress core/plugin/theme finding: `{ kind, slug, isOutdated, vulnerabilitySeverities }` (see "Component findings" below)
+- `component` (optional) — present only on a merged WordPress core/plugin/theme finding: `{ kind, slug, isOutdated, vulnerabilities }`, where `vulnerabilities` is `Array<{ severity, confirmed }>` — one entry per applicable, deduplicated vulnerability (see "Component findings" below). `confirmed` mirrors the same "version confirmed **and** applicable" check that selects a vulnerability's confirmed/potential evidence wording; `rating-engine.ts`'s Security rule reads this raw list directly, never the finding's own (possibly escalated) `severity`.
 
 **Severity comes from the vulnerability's own data — confidence never adjusts it.** There is no confidence-caps-severity mechanism (removed; a prior version of this rule capped a `critical` CVE down to `medium` purely because the installed version was only `inferred`, which mixed up two unrelated questions). Resolution order (`analysis/vulnerability-severity.ts`'s `resolveVulnerabilitySeverity`, backed by `analysis/cvss-severity.ts`'s fixed CVSS table):
 
 1. CVSS base score, mapped via the fixed table: `9.0–10.0 → critical`, `7.0–8.9 → high`, `4.0–6.9 → medium`, `0.1–3.9 → low`, `0 → info`.
 2. A WPScan-provided severity string, if present (not currently exposed by the real WPScan v3 API — verified live — but the fallback chain is built for it regardless).
-3. `medium`, if neither is available. Never invented beyond this.
+3. A conservative floor from WPScan's `vuln_type` for a small allowlist of inherently serious classes (RCE, SQLi, auth bypass, priv-esc, SSRF, XXE) → `high` — never `critical` from this signal alone.
+4. `medium`, if nothing else applies. Never invented beyond this.
 
-Confidence still matters, just for two different things: it scales the deduction in scoring (see below) and it selects report wording — `confirmed` (version confirmed **and** the vulnerability is applicable) → "has a known vulnerability"; anything less → "may be affected by a known vulnerability." Never mark a version `confirmed` off a bare `?ver=` alone (unchanged rule, enforced in `analysis/version-confidence.ts`).
+Confidence still matters, just for two different things: it selects report wording — `confirmed` (version confirmed **and** the vulnerability is applicable) → "has a known vulnerability"; anything less → "may be affected by a known vulnerability" — and it feeds Performance/SEO's real-measurement banding (see "Scoring" below) where relevant. It never adjusts severity. Never mark a version `confirmed` off a bare `?ver=` alone (unchanged rule, enforced in `analysis/version-confidence.ts`).
 
 **Applicability (independent of confidence):** a vulnerability is included for a component only when the detected version falls inside the affected range (`installed < fixed_in`, or no fix published yet) — `analysis/finding-engine.ts`'s `isAffectedByVulnerability`. This gate decides inclusion and the confirmed/potential wording; it never touches severity.
 
-**Component findings — one per component, not one per vulnerability.** `analysis/finding-engine.ts`'s `assembleComponentFinding` merges a component's outdated-status and its deduplicated (`analysis/vulnerability-dedup.ts`), applicable vulnerabilities into a single Finding — never a separate "outdated" finding plus a separate finding per vulnerability for the same underlying problem. The finding's `severity` is the max across its applicable vulnerabilities' resolved severities; with zero vulnerabilities but an outdated version, it's a fixed `medium` `maintenance` finding (unchanged from before). A component flagged only by wordpress.org's coarse "insecure" status (no itemized WPScan data for it) is `maintenance`/`medium` like any other outdated-only component — the distinction still shows up in the evidence text, just not in severity, since there's no vulnerability-level data to derive a severity from.
+**Component findings — one per component, not one per vulnerability.** `analysis/finding-engine.ts`'s `assembleComponentFinding` merges a component's outdated-status and its deduplicated (`analysis/vulnerability-dedup.ts`), applicable vulnerabilities into a single Finding — never a separate "outdated" finding plus a separate finding per vulnerability for the same underlying problem. The finding's displayed `severity` is the max across its applicable vulnerabilities' resolved severities, **escalated from `medium` to `high` once there are `MEDIUM_ESCALATION_THRESHOLD` (3) or more medium-severity vulnerabilities** — narrower than it sounds: 1 or 2 mediums stay `medium`; a single high/critical is already visible on its own and is never escalated further by count. This escalation only changes the displayed badge — scoring/rating logic reads the raw per-vulnerability list, never this label. With zero vulnerabilities but an outdated version, it's a fixed `medium` `maintenance` finding (unchanged from before).
+
+**WPScan and wordpress.org are independent enrichment tracks.** WPScan is authoritative for vulnerabilities (CVE, CVSS, range, `fixed_in`); wordpress.org is authoritative for "latest version." A missing wordpress.org listing for a component (premium/closed plugins — Elementor Pro and friends — always 404 there) must never block a WPScan lookup, and never has (`enrichPluginVulnerabilities`/`enrichThemeVulnerabilities` read detected slugs directly, not wordpress.org's enrichment map). What _did_ need fixing: without a wordpress.org listing, `isOutdated` stayed `false` forever even when WPScan clearly showed the installed version behind a known fix. `wpscanBasedOutdatedStatus` (`analysis/finding-engine.ts`) now falls back to the highest `fixed_in` among a component's applicable vulnerabilities in that case — evidence key `finding.component.{plugin,theme}.outdatedStatus.fromFixedIn.evidence`, distinct from the ordinary wordpress.org-based `...outdatedStatus.evidence`.
+
+**Dedup between the two tracks:** when WPScan already has ≥1 applicable vulnerability for **core**, wordpress.org's generic "insecure" evidence line is suppressed in favor of the plain "outdated" line — the itemized WPScan CVEs already say the same thing better, and asserting it twice is redundant. Core is still tracked as outdated either way; only the wording changes. (Plugins/themes don't have this "insecure vs. outdated" distinction to begin with, so there's nothing to suppress for them.)
+
+**Known limitation:** WPScan's registered slug for a plugin can differ from the slug our scanners detect from `/wp-content/...` paths. A mismatch produces an ordinary 404, which reads identically to "no known vulnerabilities" — there is no signal in the API response that would let us tell the two apart. This only affects individual components; the run-level `not_assessed` coverage flag (see "Ratings" below) only trips on _total_ WPScan failure, not a single slug mismatch.
+
+**TLS/HTTPS findings are `infrastructure` category, not `security`** (`deriveTlsFindings` in `analysis/finding-engine.ts`) — matches the Infrastructure rating rule below, which is what actually looks for this category. A genuinely HTTP-only site (never upgrades to HTTPS) gets its own finding, `finding.infrastructure.noHttps`, derived directly from the _effective_ (post-redirect) URL rather than from `tls-scanner`, which correctly never runs at all in that case (nothing to probe).
+
+**Missing security headers and header info-disclosure are hygiene, not risk.** They're still real Findings (`category: 'security'`, same data model, same JSON) — they just never drive any rating (see "Ratings" below, which simply never looks at them) and never surface as a headline insight (`insight-engine.ts` has no rule for them). The HTML/PDF report routes them to a separate "Quick Wins" section (`html-report.ts`'s `isHygieneFinding`, matched on `recommendationKey` prefix) instead of the main Findings list, so a genuinely clean site (no known vulnerabilities) isn't made to look risky by one missing header.
+
+---
+
+# Ratings
+
+Security, Maintenance, Infrastructure, and Overall are **qualitative**, not point-scored — `analysis/rating-engine.ts`, one function per category (`rateSecurity`, `rateMaintenance`, `rateInfrastructure`, `rateOverall`, plus `calculateRatings`), all plain first-match rules, no hidden weights, no arithmetic. A category's level is one of:
+
+- `clear` — "Bez istotnych zastrzeżeń" (no significant concerns)
+- `attention` — "Wymaga uwagi" (needs attention)
+- `urgent` — "Wymaga pilnych działań" (needs urgent action)
+- `not_assessed` — "Nieoceniane" — the relevant check never actually ran this pass (prospect mode, no WPScan token, every wordpress.org lookup failed, TLS probe errored). **Never** shown as `clear`; a category with no findings is only `clear` when we know we actually checked.
+
+Every category carries `reasons: RatingReason[]` (the same `{key, params}` shape as Finding evidence, never a raw string) — the concrete facts that drove the level, so the report can show "why."
+
+Every rule follows the same shape: a finding-based signal always wins first (if something was found, say so); `not_assessed` is only the fallback when _nothing_ was found _and_ the relevant check is known not to have run.
+
+- **Security** — depends **only** on actual vulnerabilities (WPScan component data) and endpoint-scanner exposures (config backup, xmlrpc, user enumeration, directory listing) — **never** on missing headers (those are hygiene, above).
+  - `urgent`: any vulnerability with `confirmed && severity in {high, critical}`, or any endpoint finding with `severity in {high, critical}`.
+  - `attention`: any vulnerability at all (potential, or medium/low), or any endpoint finding at all.
+  - else `not_assessed` if WPScan coverage is missing (`SECURITY_COVERAGE_ENRICHMENT`, written by the orchestrator: `not_assessed` when WPScan was never attempted — prospect mode or no token — or attempted and every single lookup failed), else `clear`.
+  - The `urgent` threshold reads each vulnerability's _raw_ confirmed+severity pair, **not** the component Finding's escalated severity badge — a component can show "High" on its badge (escalated from several mediums) while Security stays `attention`. Deliberate.
+- **Maintenance** — a separate axis from vulnerabilities entirely (a component can be outdated with zero known CVEs, or vulnerable without wordpress.org knowing about it at all).
+  - `urgent`: WordPress core itself is outdated, **or** `outdatedComponentCount >= MAINTENANCE_URGENT_OUTDATED` (6).
+  - `attention`: `outdatedComponentCount >= 1`.
+  - else `not_assessed` if wordpress.org coverage is missing (`MAINTENANCE_COVERAGE_ENRICHMENT`: `not_assessed` only when there was ≥1 component to check and _every_ lookup for it failed), else `clear`.
+- **Infrastructure** — **no `urgent` tier exists for this category** (spec only defines attention/clear/not_assessed; TLS/HTTPS problems are real but capped at `attention` by design).
+  - `attention`: any `infrastructure`-category finding present (TLS cert/protocol issues, or the "no HTTPS" finding).
+  - else `not_assessed` if the effective (post-redirect) URL is `https:` but `tls-scanner` produced no successful result, else `clear`.
+- **Overall** — worst of the three via `urgent > attention > clear`, **ignoring** any category that is `not_assessed`; becomes `not_assessed` itself only when all three are.
 
 ---
 
 # Scoring
 
-Categories: Security, Maintenance, Performance, SEO, Infrastructure, Overall. Each starts at 100.
+Numeric 0-100 scores now exist **only** where the number is a real, deterministic external measurement — currently just **Performance** via Google Lighthouse/PageSpeed. `analysis/scoring-engine.ts`'s `calculateMeasuredScores` returns the real `performanceScore` directly, never a synthetic deduction — previously a _good_ score (≥90) produced no Finding at all, which meant the actual number was invisible everywhere in a clean run; this makes it visible unconditionally. **SEO** has no real Lighthouse SEO category wired up yet, so it isn't modeled here at all — the report renders a static "not assessed" row for it rather than faking a number.
 
-`analysis/scoring-engine.ts` keeps two small, explicit tables (not a single 2D lookup, since confidence and severity now play genuinely different roles):
+Bands for these measured numbers (`analysis/score-band.ts`, unchanged thresholds, relabeled): `0–49 → poor` ("Wymaga działania" / needs action), `50–89 → fair` ("Wymaga weryfikacji" / needs review), `90–100 → good` ("Bez istotnych zastrzeżeń" / no significant concerns). This is a **different** three-level scale from the qualitative rating levels above — don't conflate the two; they use different labels on purpose.
 
-- `BASE_PENALTY` by severity: `critical 30, high 18, medium 8, low 3, info 0`.
-- `CONFIDENCE_WEIGHT` by confidence: `confirmed 1.0, corroborated 0.8, inferred 0.5`.
+Security/Maintenance/Infrastructure/Overall are **not** scored numerically at all anymore (no `BASE_PENALTY`/`CONFIDENCE_WEIGHT`/deduction math) — see "Ratings" above.
 
-A plain (non-component) finding deducts `round(BASE_PENALTY[severity] * CONFIDENCE_WEIGHT[confidence])`.
-
-A **component finding** with ≥1 vulnerability aggregates instead of using its own single severity directly: sort each applicable vulnerability's base penalty descending, take 100% of the worst plus 25% of each of the rest, then apply the component's confidence weight to that sum — finally capped at a hard **30**, regardless of how many vulnerabilities the component has. Because this cap applies identically wherever the deduction is added (the finding's own category, and `overall`), no single component can ever reduce any one score by more than 30 — this is what guarantees `overall` can't be driven below 70 by one component alone; it isn't a separate clamp.
-
-`overall` is not an average of the categories — every finding (component or plain) reduces it regardless of category, so it reflects total risk while the per-category breakdown shows where it concentrates. Every category and `overall` are clamped at 0.
-
-**Report counters** (`analysis/finding-engine.ts`'s `calculateReportCounters`, attached to `AuditResult.counters`): `componentsWithVulnerabilities`, `uniqueVulnerabilityCount` (deduplicated — CVE → WPScan id → normalized title — across every component, not just within one, so the same CVE affecting two components still counts once), `outdatedComponentCount`, `findingsBySeverity`. Not routed through `AuditContext` — `getScoreSummary()`/`getInsights()` are already write-only/never-read there (see the AuditContext vs AuditResult section), so counters go straight onto `AuditResult` instead of extending that dead pattern.
+**Report counters** (`analysis/finding-engine.ts`'s `calculateReportCounters`, attached to `AuditResult.counters`): `componentsWithVulnerabilities`, `uniqueVulnerabilityCount` (deduplicated — CVE → WPScan id → normalized title — across every component, not just within one, so the same CVE affecting two components still counts once), `outdatedComponentCount`, `findingsBySeverity`. Three genuinely different axes — never conflate "components with vulnerabilities" with "unique vulnerabilities" (e.g. "22 vulnerabilities across 8 components," not just "8"). Not routed through `AuditContext` — see the AuditContext vs AuditResult section's note on `ratings`/`measuredScores` following the same pattern.
 
 ---
 
@@ -391,7 +424,11 @@ Every insight references the finding(s) it is built on.
 
 **Naming note:** implemented as `Insight` / `generateInsights()` in `src/analysis/insight-engine.ts` — deliberately renamed away from "sales" anywhere in code, types, JSON output, or i18n keys (`insight.*`, not `report.salesInsights.*`), since these reports are shared directly with the client. This doc keeps the section title for continuity with the concept it specifies; the codebase intentionally does not use the word.
 
-Current rules (`INSIGHT_RULES` in `insight-engine.ts`) group Findings by theme rather than emitting one insight per finding: known vulnerabilities, priority (critical/high severity), outdated components, missing security headers, info disclosure, TLS configuration, exposed endpoints. A single Finding can legitimately surface under more than one rule (e.g. a critical exposed-endpoint finding appears in both the priority bucket and the exposed-endpoints bucket) — that's intentional, not a dedup bug.
+Current rules (`INSIGHT_RULES` in `insight-engine.ts`) group Findings by theme rather than emitting one insight per finding: known vulnerabilities, priority (critical/high severity), outdated components, TLS/HTTPS configuration (matches `category === 'infrastructure'`, so it covers both TLS cert/protocol findings and the "no HTTPS" finding), exposed endpoints. A single Finding can legitimately surface under more than one rule (e.g. a critical exposed-endpoint finding appears in both the priority bucket and the exposed-endpoints bucket) — that's intentional, not a dedup bug.
+
+**Missing security headers and header info-disclosure have no rule here** — they're hygiene, not headline-worthy risk (see "Findings" above); they still appear in the report's own "Quick Wins" section, just not as an Insight.
+
+`insight.knownVulnerabilities` reports `componentCount` and `vulnCount` as two separate params, not one ambiguous `count` — "22 vulnerabilities across 8 components," never just "8" (which used to silently mean "components," undercounting the real number of known vulnerabilities). Every other rule still uses the default `{ count: matched.length }` shape (`InsightRule.params`, optional, only overridden where a rule genuinely needs a different one).
 
 ---
 
@@ -399,7 +436,7 @@ Current rules (`INSIGHT_RULES` in `insight-engine.ts`) group Findings by theme r
 
 Generate: JSON, HTML, PDF.
 
-HTML/PDF contain: summary, scores, findings, detected plugins, detected theme, recommendations, sales insights, limitations.
+HTML/PDF contain: summary, qualitative ratings (Security/Maintenance/Infrastructure/Overall, with reasons), measured scores (Performance's real number; SEO as "not assessed"), risk findings, a separate "Quick Wins" hygiene section (missing headers/info-disclosure — see "Findings"), detected plugins, detected theme, recommendations, sales insights, limitations.
 
 Always include a disclaimer that the audit is based only on publicly available information. Keep the HTML template PDF-friendly so PDF is a render of the same template, not a separate layout.
 
@@ -569,7 +606,7 @@ Status as of the last update to this doc — keep this section current; it's the
 
 **Phase 1** — CLI, basic scanners, WordPress.org enrichment, JSON + HTML, EN/PL scaffolding, prospect/audit mode enforcement. **✅ Done.** All 8 MVP scanners implemented and registered; orchestrator runs the real pipeline (scanners → WordPress.org enrichment → findings → scoring → insights → JSON + HTML persisted); `--i-have-authorization` actually works end-to-end (this was broken until recently — it set the mode but never supplied the consent object, so every real audit-mode CLI run failed immediately).
 
-**Phase 2** — WPScan API, PageSpeed, cache, scoring. **✅ Done.** WPScan CVE enrichment: audit-mode-gated, verified against the live API. PageSpeed: prospect-safe, verified against the live API, feeds real findings into the `performance` score category (previously always 100). Cache (`FileCacheStore`, `provider:type:identifier:version` keys): done. Scoring (`analysis/scoring-engine.ts`, explicit deduction table): done.
+**Phase 2** — WPScan API, PageSpeed, cache, scoring. **✅ Done.** WPScan CVE enrichment: audit-mode-gated, verified against the live API. PageSpeed: prospect-safe, verified against the live API, feeds real findings into the `performance` score category (previously always 100). Cache (`FileCacheStore`, `provider:type:identifier:version` keys): done. Scoring as originally built here (a `BASE_PENALTY`×`CONFIDENCE_WEIGHT` deduction table producing a 0-100 number for every category) was later replaced by qualitative ratings for Security/Maintenance/Infrastructure/Overall — see "Ratings" and "Scoring" above; `analysis/scoring-engine.ts` now only computes Performance's real measured number.
 
 **Phase 3** — batch mode (with consent handling), history, compare, deep profile. **Deep profile: done** (see Axis 2 above — `PluginScanner`/`ThemeScanner` asset-scanning at prospect+deep, Layer 3 dictionary enumeration at audit+deep, verified live). **Batch mode, history, compare: not started.** `wp-audit batch`/`wp-audit history` are registered commands that just print "not implemented."
 
