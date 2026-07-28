@@ -898,11 +898,37 @@ describe('generateFindings', () => {
       ]);
     });
 
-    it('escalates severity by one tier when a component has 2+ vulnerabilities, even if each is only medium', () => {
-      // A component with several distinct known vulnerabilities is a worse
-      // situation than one with a single vulnerability of the same severity,
-      // or one that's merely outdated with none at all — this must be
-      // visible in the displayed severity, not just in the score.
+    /**
+     * A component with several distinct known medium-severity vulnerabilities
+     * is a worse situation than one with just one or two, or one that's
+     * merely outdated with none at all — this must be visible in the
+     * displayed severity, not just in the score. Escalation only kicks in at
+     * MEDIUM_ESCALATION_THRESHOLD (3): 1 and 2 medium-severity vulnerabilities
+     * both stay 'medium'; 3+ escalates the badge to 'high'.
+     */
+    it('does not escalate a single medium-severity vulnerability — stays medium', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'contact-form-7',
+              version: { value: '5.9.6', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'contact-form-7': [{ id: 'v1', title: 'Some issue', fixedIn: '6.0.6', references: [] }],
+      });
+
+      expect(generateFindings(context)[0]!.severity).toBe('medium');
+    });
+
+    it('does not escalate two medium-severity vulnerabilities — still under the threshold', () => {
       const context = createContext();
       context.addScannerResult({
         scannerName: 'plugin-scanner',
@@ -926,14 +952,14 @@ describe('generateFindings', () => {
 
       const findings = generateFindings(context);
 
-      expect(findings[0]!.severity).toBe('high');
+      expect(findings[0]!.severity).toBe('medium');
       expect(findings[0]!.component?.vulnerabilities.map((v) => v.severity)).toEqual([
         'medium',
         'medium',
       ]);
     });
 
-    it('does not escalate a single vulnerability — one medium-severity CVE stays medium', () => {
+    it('escalates to high once there are 3+ medium-severity vulnerabilities', () => {
       const context = createContext();
       context.addScannerResult({
         scannerName: 'plugin-scanner',
@@ -941,18 +967,29 @@ describe('generateFindings', () => {
         data: {
           plugins: [
             {
-              slug: 'contact-form-7',
-              version: { value: '5.9.6', sources: ['plugin-readme'], confidence: 'confirmed' },
+              slug: 'wordpress-seo',
+              version: { value: '23.0', sources: ['plugin-readme'], confidence: 'confirmed' },
             },
           ],
         },
         durationMs: 0,
       });
       context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
-        'contact-form-7': [{ id: 'v1', title: 'Some issue', fixedIn: '6.0.6', references: [] }],
+        'wordpress-seo': [
+          { id: 'v1', title: 'XSS #1', fixedIn: '26.9', references: [] },
+          { id: 'v2', title: 'XSS #2', fixedIn: '27.2', references: [] },
+          { id: 'v3', title: 'XSS #3', fixedIn: '27.5', references: [] },
+        ],
       });
 
-      expect(generateFindings(context)[0]!.severity).toBe('medium');
+      const findings = generateFindings(context);
+
+      expect(findings[0]!.severity).toBe('high');
+      expect(findings[0]!.component?.vulnerabilities.map((v) => v.severity)).toEqual([
+        'medium',
+        'medium',
+        'medium',
+      ]);
     });
 
     it('never escalates past high — two high-severity vulnerabilities do not become critical', () => {
