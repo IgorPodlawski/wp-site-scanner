@@ -98,7 +98,7 @@
 
   "rating.overall.reason.notAssessed": "Żadna z kategorii Bezpieczeństwo, Utrzymanie ani Infrastruktura nie mogła zostać oceniona w tym uruchomieniu.",
 
-  "finding.notWordpress.evidence": "Na stronie głównej {{domain}} nie znaleziono sygnałów WordPressa (meta generator, ścieżki /wp-content/ lub /wp-includes/, link REST API).",
+  "finding.notWordpress.evidence": "Na stronie głównej {{domain}} nie znaleziono sygnałów WordPressa (meta generator, ścieżki /wp-content/, /wp-includes/ lub /app/ (Bedrock), link REST API lub ścieżka /wp-json/).",
   "finding.notWordpress.recommendation": "Brak dalszych działań — to narzędzie ocenia jedynie strony WordPress.",
 
   "finding.header.missingHsts.evidence": "W odpowiedzi strony głównej brakuje nagłówka Strict-Transport-Security.",

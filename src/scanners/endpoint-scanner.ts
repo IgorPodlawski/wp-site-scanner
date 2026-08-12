@@ -110,23 +110,37 @@ export class EndpointScanner implements Scanner {
     }
   }
 
+  /**
+   * Tries both the conventional 'wp-content/uploads' path and Bedrock's
+   * (roots.io) renamed 'app/uploads' — a site uses one or the other, never
+   * both, so this is two cheap, always-curated candidates, not open-ended
+   * path guessing.
+   */
   private async probeDirectoryListing(
     origin: string,
   ): Promise<{ listingDetected: boolean; error?: string }> {
-    try {
-      const response = await this.httpClient.fetchUrl(
-        this.resolveUrl(origin, '/wp-content/uploads/'),
-        this.httpClientOptions,
-      );
-      return {
-        listingDetected: response.status === 200 && /Index of \//i.test(response.body),
-      };
-    } catch (cause) {
-      return {
-        listingDetected: false,
-        error: cause instanceof Error ? cause.message : String(cause),
-      };
-    }
+    const paths = ['/wp-content/uploads/', '/app/uploads/'];
+    const results = await Promise.all(
+      paths.map(async (path) => {
+        try {
+          const response = await this.httpClient.fetchUrl(
+            this.resolveUrl(origin, path),
+            this.httpClientOptions,
+          );
+          return { listingDetected: response.status === 200 && /Index of \//i.test(response.body) };
+        } catch (cause) {
+          return {
+            listingDetected: false,
+            error: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
+      }),
+    );
+
+    const detected = results.find((r) => r.listingDetected);
+    if (detected) return detected;
+    // Neither path showed a listing — surface the first error, if any, purely for diagnostics.
+    return results.find((r) => r.error) ?? { listingDetected: false };
   }
 
   private async probeRestApiUsers(

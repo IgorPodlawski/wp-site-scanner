@@ -7,6 +7,18 @@ import { mapWithConcurrency } from '../utils/concurrency.js';
 
 const DICTIONARY_CONCURRENCY = 5;
 
+/**
+ * WordPress's default content directory is `wp-content`, but Bedrock
+ * (roots.io) and similar boilerplates rename it to `app` — same internal
+ * structure (themes/plugins/mu-plugins/uploads, same readme.txt/style.css
+ * files inside each component), just a different parent folder name. Both
+ * are tried; which one is actually in use is determined once per scan from
+ * real evidence already in the fetched body (see `detectContentRoot`), not
+ * guessed per request.
+ */
+const CONTENT_ROOTS = ['wp-content', 'app'] as const;
+type ContentRoot = (typeof CONTENT_ROOTS)[number];
+
 export interface DetectedComponent {
   slug: string;
   version?: VersionInfo;
@@ -14,7 +26,7 @@ export interface DetectedComponent {
 
 export interface ComponentScannerConfig {
   name: string;
-  /** e.g. 'plugins' or 'themes' — the `/wp-content/<segment>/<slug>/` path fragment. */
+  /** e.g. 'plugins' or 'themes' — the `/<content-root>/<segment>/<slug>/` path fragment (content root is 'wp-content' or Bedrock's 'app', detected per scan — see CONTENT_ROOTS). */
   contentPathSegment: string;
   /** e.g. 'readme.txt' or 'style.css' — probed only under audit mode (Layer 2/3). */
   versionProbeFilename: string;
@@ -61,7 +73,10 @@ export class ComponentScanner implements Scanner {
     private readonly httpClient?: HttpClient,
   ) {
     this.name = config.name;
-    this.slugPattern = new RegExp(`/wp-content/${config.contentPathSegment}/([a-z0-9-]+)/`, 'gi');
+    this.slugPattern = new RegExp(
+      `/(?:${CONTENT_ROOTS.join('|')})/${config.contentPathSegment}/([a-z0-9-]+)/`,
+      'gi',
+    );
   }
 
   supports(context: AuditContext): boolean {
@@ -73,15 +88,17 @@ export class ComponentScanner implements Scanner {
     const response = context.getHttpResponse() as HttpResponse;
 
     const scannedBody = await this.buildScannedBody(context, response);
+    const contentRoot = this.detectContentRoot(scannedBody);
     const slugs = this.extractSlugs(scannedBody);
     const components: DetectedComponent[] = await Promise.all(
-      slugs.map((slug) => this.detectComponent(context, response, slug, scannedBody)),
+      slugs.map((slug) => this.detectComponent(context, response, slug, scannedBody, contentRoot)),
     );
 
     if (context.authorizationMode === 'audit' && context.profile === 'deep') {
       const dictionaryComponents = await this.enumerateDictionary(
         response,
         components.map((c) => c.slug),
+        contentRoot,
       );
       components.push(...dictionaryComponents);
     }
@@ -118,15 +135,35 @@ export class ComponentScanner implements Scanner {
     return [...slugs];
   }
 
+  /**
+   * Which content root this site actually uses — determined once per scan
+   * from real evidence already in the fetched body (the first root with at
+   * least one real match for this segment), never guessed per request.
+   * Defaults to the conventional 'wp-content' when the body gives no signal
+   * either way (e.g. a plugin-free homepage) — the common case, and no
+   * worse than the previous hardcoded behavior.
+   */
+  private detectContentRoot(body: string): ContentRoot {
+    for (const root of CONTENT_ROOTS) {
+      if (body.includes(`/${root}/${this.config.contentPathSegment}/`)) {
+        return root;
+      }
+    }
+    return CONTENT_ROOTS[0];
+  }
+
   private async detectComponent(
     context: AuditContext,
     response: HttpResponse,
     slug: string,
     scannedBody: string,
+    contentRoot: ContentRoot,
   ): Promise<DetectedComponent> {
     const assetQueryVersion = this.extractAssetQueryVersion(scannedBody, slug);
     const probedVersion =
-      context.authorizationMode === 'audit' ? await this.probeVersion(response, slug) : undefined;
+      context.authorizationMode === 'audit'
+        ? await this.probeVersion(response, slug, contentRoot)
+        : undefined;
 
     const version = deriveVersionInfo([
       probedVersion ? { value: probedVersion, source: this.config.versionSource } : undefined,
@@ -138,21 +175,26 @@ export class ComponentScanner implements Scanner {
     return version ? { slug, version } : { slug };
   }
 
+  /** Just scanning text already in memory — root-agnostic alternation costs nothing extra, unlike probeVersion's network call. */
   private extractAssetQueryVersion(body: string, slug: string): string | undefined {
     const pattern = new RegExp(
-      `/wp-content/${this.config.contentPathSegment}/${slug}/[^"'\\s]*\\?ver=(${WP_VERSION_SHAPE})`,
+      `/(?:${CONTENT_ROOTS.join('|')})/${this.config.contentPathSegment}/${slug}/[^"'\\s]*\\?ver=(${WP_VERSION_SHAPE})`,
       'i',
     );
     return body.match(pattern)?.[1];
   }
 
   /** Layer-2, audit only: fetches the component's own version file from the target and reads its version line. */
-  private async probeVersion(response: HttpResponse, slug: string): Promise<string | undefined> {
+  private async probeVersion(
+    response: HttpResponse,
+    slug: string,
+    contentRoot: ContentRoot,
+  ): Promise<string | undefined> {
     if (!this.httpClient || !this.httpClientOptions) {
       return undefined;
     }
     const fileUrl = new URL(
-      `/wp-content/${this.config.contentPathSegment}/${slug}/${this.config.versionProbeFilename}`,
+      `/${contentRoot}/${this.config.contentPathSegment}/${slug}/${this.config.versionProbeFilename}`,
       response.url,
     ).toString();
     try {
@@ -169,11 +211,15 @@ export class ComponentScanner implements Scanner {
   /**
    * Layer 3, audit + deep only: probes the dictionary's version file for any
    * slug Layer 1/2 didn't already find, throttled to be polite to the
-   * target even under audit consent.
+   * target even under audit consent. Uses the same site-wide content root
+   * Layer 1 already determined — the root is a structural choice made once
+   * for the whole site, not per-plugin, so there's no need to try both for
+   * every dictionary candidate.
    */
   private async enumerateDictionary(
     response: HttpResponse,
     alreadyDetectedSlugs: readonly string[],
+    contentRoot: ContentRoot,
   ): Promise<DetectedComponent[]> {
     if (!this.httpClient || !this.httpClientOptions) return [];
 
@@ -184,7 +230,7 @@ export class ComponentScanner implements Scanner {
       candidates,
       DICTIONARY_CONCURRENCY,
       async (slug): Promise<DetectedComponent | undefined> => {
-        const probedVersion = await this.probeVersion(response, slug);
+        const probedVersion = await this.probeVersion(response, slug, contentRoot);
         if (!probedVersion) return undefined;
         const version = deriveVersionInfo([
           { value: probedVersion, source: this.config.versionSource },

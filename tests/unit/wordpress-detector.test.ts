@@ -41,6 +41,50 @@ describe('WordPressDetector', () => {
     expect(context.isWordPress()).toBe(true);
   });
 
+  it('detects a Bedrock (roots.io) site from /app/themes/ paths, even with no generator tag or /wp-content/', async () => {
+    // Real gap, found live: Bedrock renames wp-content to app/, so a site
+    // built on it doesn't match any of the other three signals either
+    // (Bedrock also commonly strips the generator meta tag and doesn't
+    // emit the api.w.org REST discovery link).
+    const context = createContext(
+      htmlResponse(
+        '<html><head><link rel="stylesheet" href="/app/themes/mysite/public/build/app.css" /></head></html>',
+      ),
+    );
+    const scanner = new WordPressDetector();
+
+    const result = await scanner.run(context);
+
+    expect(context.isWordPress()).toBe(true);
+    expect(result.data).toEqual({ isWordPress: true, matchedSignals: ['bedrock-content-path'] });
+  });
+
+  it('detects WordPress from a bare /wp-json/ path when nothing else matches', async () => {
+    const context = createContext(
+      htmlResponse(
+        '<html><head></head><body><a href="/wp-json/newsletter/subscribe">x</a></body></html>',
+      ),
+    );
+    const scanner = new WordPressDetector();
+
+    const result = await scanner.run(context);
+
+    expect(context.isWordPress()).toBe(true);
+    expect(result.data).toEqual({ isWordPress: true, matchedSignals: ['wp-json-path'] });
+  });
+
+  it('does not treat a generic "/app/" path (e.g. a JS framework router) as a Bedrock signal on its own', async () => {
+    const context = createContext(
+      htmlResponse('<html><head><script src="/app/main.js"></script></head></html>'),
+    );
+    const scanner = new WordPressDetector();
+
+    const result = await scanner.run(context);
+
+    expect(context.isWordPress()).toBe(false);
+    expect(result.data).toEqual({ isWordPress: false, matchedSignals: [] });
+  });
+
   it('reports non-WordPress sites as such, without any false-positive signal', async () => {
     const context = createContext(
       htmlResponse('<html><head><title>Just a plain site</title></head><body>Hello</body></html>'),

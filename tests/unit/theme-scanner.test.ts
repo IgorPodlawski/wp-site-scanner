@@ -38,6 +38,24 @@ describe('ThemeScanner', () => {
     });
   });
 
+  it('detects a theme slug from a Bedrock /app/themes/ path (wp-content renamed to app)', async () => {
+    const context = createContext(
+      '<link rel="stylesheet" href="/app/themes/mysite/public/build/app.css?ver=1.2" />',
+    );
+    const scanner = new ThemeScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({
+      themes: [
+        {
+          slug: 'mysite',
+          version: { value: '1.2', sources: ['asset-query-string'], confidence: 'inferred' },
+        },
+      ],
+    });
+  });
+
   it('deduplicates repeated references to the same theme slug', async () => {
     const context = createContext(
       '<link rel="stylesheet" href="/wp-content/themes/twentytwentyfour/style.css" />' +

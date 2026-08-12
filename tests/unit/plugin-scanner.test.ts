@@ -38,6 +38,53 @@ describe('PluginScanner', () => {
     });
   });
 
+  it('detects a plugin slug from a Bedrock /app/plugins/ path (wp-content renamed to app)', async () => {
+    const context = createContext(
+      '<script src="/app/plugins/akismet/akismet.js?ver=5.3"></script>',
+    );
+    const scanner = new PluginScanner();
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({
+      plugins: [
+        {
+          slug: 'akismet',
+          version: { value: '5.3', sources: ['asset-query-string'], confidence: 'inferred' },
+        },
+      ],
+    });
+  });
+
+  it('probes the Bedrock readme.txt path (/app/plugins/...) once Layer 1 evidence shows app/ is the content root in use', async () => {
+    const httpClient: HttpClient = {
+      fetchUrl: async (url) => {
+        expect(url).toBe('https://example.com/app/plugins/akismet/readme.txt');
+        return { url, status: 200, headers: {}, body: 'Stable tag: 5.3\n' };
+      },
+    };
+    const context = createContext(
+      '<script src="/app/plugins/akismet/akismet.js?ver=5.3"></script>',
+      'audit',
+    );
+    const scanner = new PluginScanner(OPTIONS, httpClient);
+
+    const result = await scanner.run(context);
+
+    expect(result.data).toEqual({
+      plugins: [
+        {
+          slug: 'akismet',
+          version: {
+            value: '5.3',
+            sources: ['plugin-readme', 'asset-query-string'],
+            confidence: 'confirmed',
+          },
+        },
+      ],
+    });
+  });
+
   it('deduplicates repeated references to the same plugin slug', async () => {
     const context = createContext(
       '<link href="/wp-content/plugins/akismet/style.css" />' +
@@ -220,6 +267,40 @@ describe('PluginScanner', () => {
           },
         ],
       });
+    });
+
+    it('uses the site-wide content root Layer 1 already detected (app/) for dictionary probing too, not wp-content', async () => {
+      const httpClient: HttpClient = {
+        fetchUrl: async (url) => {
+          if (url === 'https://example.com/app/plugins/woocommerce/readme.txt') {
+            return { url, status: 200, headers: {}, body: 'Stable tag: 8.0\n' };
+          }
+          if (url.includes('/wp-content/')) {
+            throw new Error(
+              'must not probe wp-content once app/ is known to be the real content root',
+            );
+          }
+          return { url, status: 404, headers: {}, body: 'not found' };
+        },
+      };
+      // Layer 1 sees only akismet under app/ — that alone establishes app/
+      // as this site's content root for every subsequent probe, including
+      // Layer 3 dictionary candidates like woocommerce that Layer 1 itself
+      // never referenced.
+      const context = createContext(
+        '<script src="/app/plugins/akismet/akismet.js"></script>',
+        'audit',
+        'deep',
+      );
+      const scanner = new PluginScanner(OPTIONS, httpClient);
+
+      const result = await scanner.run(context);
+
+      const slugs = (result.data as { plugins: Array<{ slug: string }> }).plugins.map(
+        (p) => p.slug,
+      );
+      expect(slugs).toContain('akismet');
+      expect(slugs).toContain('woocommerce');
     });
 
     it('does not re-probe a slug Layer 1 already detected', async () => {

@@ -113,6 +113,19 @@ describe('EndpointScanner', () => {
     expect(result.data).toMatchObject({ directoryListing: { listingDetected: true } });
   });
 
+  it("also detects a directory listing under Bedrock's renamed /app/uploads/ path", async () => {
+    const scanner = new EndpointScanner(
+      OPTIONS,
+      fakeClient({
+        '/app/uploads/': ok('<title>Index of /app/uploads</title>'),
+      }),
+    );
+
+    const result = await scanner.run(createContext());
+
+    expect(result.data).toMatchObject({ directoryListing: { listingDetected: true } });
+  });
+
   it('records a probe failure without letting it take down the other probes', async () => {
     const scanner = new EndpointScanner(
       OPTIONS,
