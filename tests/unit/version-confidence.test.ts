@@ -42,7 +42,12 @@ describe('deriveVersionInfo', () => {
     });
   });
 
-  it('breaks a conflict toward the first-listed (most trusted) candidate', () => {
+  it('breaks a conflict toward the first-listed (most trusted) candidate, but caps confidence at inferred', () => {
+    // Real bug, found live: a plugin's readme.txt "Stable tag" (10.9.4) was
+    // itself stale — the site was actually running 11.0.0, visible only in
+    // the live asset ?ver=. The tie-break still has to pick *something* to
+    // display, but calling that pick 'corroborated' when a second signal
+    // actively disagreed with it overstates how sure we are.
     const result = deriveVersionInfo([
       { value: '6.5.2', source: 'plugin-readme' },
       { value: '6.4.0', source: 'asset-query-string' },
@@ -51,7 +56,21 @@ describe('deriveVersionInfo', () => {
     expect(result).toEqual({
       value: '6.5.2',
       sources: ['plugin-readme'],
-      confidence: 'corroborated',
+      confidence: 'inferred',
+    });
+  });
+
+  it('does not downgrade confidence when a group with 2+ agreeing sources also has a lone outlier', () => {
+    const result = deriveVersionInfo([
+      { value: '6.5.2', source: 'plugin-readme' },
+      { value: '6.5.2', source: 'theme-stylesheet' },
+      { value: '6.4.0', source: 'asset-query-string' },
+    ]);
+
+    expect(result).toEqual({
+      value: '6.5.2',
+      sources: ['plugin-readme', 'theme-stylesheet'],
+      confidence: 'confirmed',
     });
   });
 

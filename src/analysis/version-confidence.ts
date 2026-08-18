@@ -39,6 +39,19 @@ export interface VersionCandidate {
  * disagree never get merged into a false 'confirmed' — the largest
  * agreeing group wins, and ties break toward whichever candidate was listed
  * first (callers list their most-trusted source first).
+ *
+ * A pure tie (every value seen exactly once, i.e. two single-source
+ * candidates that genuinely disagree) is capped at 'inferred' regardless of
+ * which source type won the tie-break — found live: a plugin's readme.txt
+ * "Stable tag" can itself be stale (the developer shipped a code update
+ * without bumping it), so "prefer the probed file over the asset ?ver="
+ * isn't a safe default in general, only a tie-break of last resort. Calling
+ * that a 'corroborated' fact when a second, equally-uncorroborated signal
+ * actively disagreed overstates the confidence — 'corroborated' should mean
+ * "nothing contradicted this," not "we picked one of two conflicting
+ * guesses." A group that already has 2+ *agreeing* sources keeps its normal
+ * confidence even if a lone outlier candidate also showed up — real
+ * agreement between independent sources still counts for something.
  */
 export function deriveVersionInfo(
   candidates: ReadonlyArray<VersionCandidate | undefined>,
@@ -61,7 +74,10 @@ export function deriveVersionInfo(
   const maxSize = Math.max(...[...groups.values()].map((sources) => sources.length));
   const [value, sources] = [...groups.entries()].find(([, s]) => s.length === maxSize)!;
 
-  return { value, sources, confidence: deriveConfidence(sources) };
+  const isUnresolvedTie = maxSize === 1 && groups.size > 1;
+  const confidence = isUnresolvedTie ? 'inferred' : deriveConfidence(sources);
+
+  return { value, sources, confidence };
 }
 
 /**

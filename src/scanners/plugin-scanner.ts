@@ -66,6 +66,11 @@ const PLUGIN_DICTIONARY: readonly string[] = [
   'insert-headers-and-footers',
   'wp-statistics',
   'user-registration',
+  // Verified live against api.wordpress.org 2026-08-18: 100k+ active
+  // installs, no public-facing frontend footprint at all (pure wp-admin
+  // file-management UI) — undetectable by Layer 1 on any site, which is
+  // exactly what this dictionary exists for.
+  'file-manager-advanced',
 ];
 
 const PLUGIN_CONFIG: ComponentScannerConfig = {
