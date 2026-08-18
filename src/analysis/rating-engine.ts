@@ -131,27 +131,43 @@ export function rateSecurity(context: AuditContext, findings: readonly Finding[]
 /**
  * Outdated-ness is a separate axis from vulnerabilities (a component can be
  * outdated with zero known CVEs, or vulnerable without wordpress.org even
- * knowing about it — see finding-engine.ts's WPScan/.org decoupling). Reads
- * `counters.outdatedComponentCount` (already deduplicated/computed once)
- * rather than re-deriving it from `findings`.
+ * knowing about it — see finding-engine.ts's WPScan/.org decoupling).
+ *
+ * The `urgent` threshold requires `confidence !== 'inferred'` — the same bar
+ * Security's `urgent` threshold already applies to vulnerabilities (raw
+ * confirmed+severity, never a mere "potential" match). An `inferred` version
+ * comes from a single, un-corroborated signal (typically a bare asset
+ * `?ver=`), which "cache-busters lie" (see CLAUDE.md's Version detection
+ * rules) already warns can be wrong — found live: a real client site's
+ * cached homepage still referenced `?ver=6.5.4` after the site had actually
+ * been upgraded to 7.0.3 (confirmed via wp-admin), because the page cache
+ * hadn't been purged since the upgrade. Asserting "core is outdated, urgent"
+ * off that alone is exactly the kind of false positive CLAUDE.md's "false
+ * positives are worse than missed findings" warns against. `attention`
+ * still applies regardless of confidence — the signal is still worth a
+ * softer, non-headline note even when unconfirmed.
  */
 export function rateMaintenance(
   context: AuditContext,
   findings: readonly Finding[],
   counters: ReportCounters,
 ): CategoryRating {
-  const coreOutdated = findings.some(
-    (finding) => finding.component?.kind === 'core' && finding.component.isOutdated,
+  const outdatedFindings = findings.filter((finding) => finding.component?.isOutdated);
+  const confidentlyOutdated = outdatedFindings.filter(
+    (finding) => finding.confidence !== 'inferred',
+  );
+  const coreOutdatedConfidently = confidentlyOutdated.some(
+    (finding) => finding.component?.kind === 'core',
   );
   const outdatedCount = counters.outdatedComponentCount;
 
-  if (coreOutdated || outdatedCount >= MAINTENANCE_URGENT_OUTDATED) {
+  if (coreOutdatedConfidently || confidentlyOutdated.length >= MAINTENANCE_URGENT_OUTDATED) {
     const reasons: RatingReason[] = [];
-    if (coreOutdated) reasons.push({ key: 'rating.maintenance.reason.coreOutdated' });
-    if (outdatedCount >= MAINTENANCE_URGENT_OUTDATED) {
+    if (coreOutdatedConfidently) reasons.push({ key: 'rating.maintenance.reason.coreOutdated' });
+    if (confidentlyOutdated.length >= MAINTENANCE_URGENT_OUTDATED) {
       reasons.push({
         key: 'rating.maintenance.reason.manyOutdated',
-        params: { count: outdatedCount },
+        params: { count: confidentlyOutdated.length },
       });
     }
     return { category: 'maintenance', level: 'urgent', reasons };

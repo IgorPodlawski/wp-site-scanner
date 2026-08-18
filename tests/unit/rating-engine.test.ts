@@ -174,34 +174,74 @@ describe('rateMaintenance', () => {
     };
   }
 
-  it('is urgent when WordPress core itself is outdated', () => {
-    const coreFinding = createFinding({
-      id: 'core-1',
+  function outdatedFinding(
+    kind: 'core' | 'plugin' | 'theme',
+    confidence: Finding['confidence'],
+    slug = kind === 'core' ? 'wordpress-core' : 'x',
+  ): Finding {
+    nextId += 1;
+    return createFinding({
+      id: `outdated-${nextId}`,
       category: 'maintenance',
-      confidence: 'confirmed',
+      confidence,
       severity: 'medium',
       sourceLayer: 'third-party',
       businessImpact: 'medium',
-      recommendationKey: 'finding.component.core.outdated.recommendation',
+      recommendationKey: `finding.component.${kind}.outdated.recommendation`,
       evidence: [],
-      component: { kind: 'core', slug: 'wordpress-core', isOutdated: true, vulnerabilities: [] },
+      component: { kind, slug, isOutdated: true, vulnerabilities: [] },
     });
+  }
+
+  it('is urgent when WordPress core itself is outdated', () => {
+    const coreFinding = outdatedFinding('core', 'confirmed');
     const context = buildTestContext();
     context.setEnrichment(MAINTENANCE_COVERAGE_ENRICHMENT, 'assessed');
 
     expect(rateMaintenance(context, [coreFinding], counters(1)).level).toBe('urgent');
   });
 
-  it(`is urgent at exactly the MAINTENANCE_URGENT_OUTDATED boundary (${MAINTENANCE_URGENT_OUTDATED})`, () => {
+  it('is attention, not urgent, when core is outdated only per an inferred (unconfirmed) version', () => {
+    // Real bug, found live: a cached homepage still referenced an old
+    // ?ver= after the site had actually been upgraded (confirmed via
+    // wp-admin) — an inferred, single-source version must not single-
+    // handedly assert "core outdated, urgent".
+    const coreFinding = outdatedFinding('core', 'inferred');
     const context = buildTestContext();
     context.setEnrichment(MAINTENANCE_COVERAGE_ENRICHMENT, 'assessed');
 
-    expect(rateMaintenance(context, [], counters(MAINTENANCE_URGENT_OUTDATED)).level).toBe(
+    expect(rateMaintenance(context, [coreFinding], counters(1)).level).toBe('attention');
+  });
+
+  it(`is urgent at exactly the MAINTENANCE_URGENT_OUTDATED boundary (${MAINTENANCE_URGENT_OUTDATED}) confidently-outdated components`, () => {
+    const context = buildTestContext();
+    context.setEnrichment(MAINTENANCE_COVERAGE_ENRICHMENT, 'assessed');
+
+    const atThreshold = Array.from({ length: MAINTENANCE_URGENT_OUTDATED }, (_, i) =>
+      outdatedFinding('plugin', 'confirmed', `plugin-${i}`),
+    );
+    expect(rateMaintenance(context, atThreshold, counters(atThreshold.length)).level).toBe(
       'urgent',
     );
-    expect(rateMaintenance(context, [], counters(MAINTENANCE_URGENT_OUTDATED - 1)).level).toBe(
+
+    const belowThreshold = atThreshold.slice(0, -1);
+    expect(rateMaintenance(context, belowThreshold, counters(belowThreshold.length)).level).toBe(
       'attention',
     );
+  });
+
+  it('does not count inferred-confidence outdated components toward the urgent boundary', () => {
+    const context = buildTestContext();
+    context.setEnrichment(MAINTENANCE_COVERAGE_ENRICHMENT, 'assessed');
+
+    const mixed = [
+      ...Array.from({ length: MAINTENANCE_URGENT_OUTDATED - 1 }, (_, i) =>
+        outdatedFinding('plugin', 'confirmed', `plugin-${i}`),
+      ),
+      outdatedFinding('plugin', 'inferred', 'inferred-plugin'),
+    ];
+
+    expect(rateMaintenance(context, mixed, counters(mixed.length)).level).toBe('attention');
   });
 
   it('is attention when at least one non-core component is outdated', () => {
