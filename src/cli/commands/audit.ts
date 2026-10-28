@@ -10,6 +10,7 @@ import {
   createWordPressOrgClient,
   createWpscanClient,
   createPageSpeedClient,
+  createPhpVulnerabilityClient,
 } from '../../integrations/integration-registry.js';
 import { loadConfig } from '../../config/load-config.js';
 import { createLogger } from '../../utils/logger.js';
@@ -60,6 +61,7 @@ export function registerAuditCommand(program: Command): void {
         createWordPressOrgClient(config, options.cache),
         createWpscanClient(config, options.cache),
         createPageSpeedClient(config, options.cache),
+        createPhpVulnerabilityClient(config, options.cache),
       );
 
       try {

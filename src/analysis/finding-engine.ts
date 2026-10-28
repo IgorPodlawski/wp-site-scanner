@@ -19,11 +19,12 @@ import type { DetectedTheme } from '../scanners/theme-scanner.js';
 import type {
   CoreStableVersions,
   PageSpeedResult,
+  PhpVulnerability,
   WordPressOrgPluginInfo,
   WordPressOrgThemeInfo,
   WpscanVulnerability,
 } from '../integrations/enrichment-types.js';
-import { compareVersions } from './version-confidence.js';
+import { compareVersions, deriveConfidence, WP_VERSION_SHAPE } from './version-confidence.js';
 import { getScoreBand } from './score-band.js';
 import { resolveVulnerabilitySeverity } from './vulnerability-severity.js';
 import { dedupeVulnerabilities } from './vulnerability-dedup.js';
@@ -36,6 +37,7 @@ export const WPSCAN_PLUGIN_ENRICHMENT = 'wpscan-plugins';
 export const WPSCAN_THEME_ENRICHMENT = 'wpscan-themes';
 export const WPSCAN_CORE_ENRICHMENT = 'wpscan-core';
 export const PAGESPEED_ENRICHMENT = 'pagespeed';
+export const PHP_VULNERABILITY_ENRICHMENT = 'php-vulnerabilities';
 
 /**
  * Written once by AuditOrchestrator.run() after enrichment completes (same
@@ -51,6 +53,24 @@ export const MAINTENANCE_COVERAGE_ENRICHMENT = 'coverage-maintenance-wordpress-o
 
 /** Internal-only identifier for the core "component" — never rendered (finding.component.core.* keys don't reference {{slug}}). */
 const CORE_SLUG = 'wordpress-core';
+/** Same convention as CORE_SLUG — internal-only, never rendered (finding.component.php.* keys don't reference {{slug}} either). */
+const PHP_SLUG = 'php';
+
+/**
+ * The only publicly visible signal of the server's PHP version — e.g.
+ * `X-Powered-By: PHP/8.1.2`. Many hardened/managed hosts disable
+ * `expose_php`, so this is frequently absent entirely; when it is present,
+ * it's exactly one source (`http-header`), which `deriveConfidence` already
+ * caps at `inferred` (same "a page cache can serve this stale" risk as a
+ * bare asset `?ver=` — see version-confidence.ts). Requires the same
+ * major.minor[.patch] shape as every other version extraction here.
+ */
+const PHP_VERSION_PATTERN = new RegExp(`PHP/(${WP_VERSION_SHAPE})`, 'i');
+
+/** Exported so AuditOrchestrator can decide, with the exact same logic, whether there's a PHP version worth looking up at all before calling PhpVulnerabilityClient. */
+export function extractPhpVersion(xPoweredBy: string | undefined): string | undefined {
+  return xPoweredBy?.match(PHP_VERSION_PATTERN)?.[1];
+}
 
 const MISSING_HEADER_RULES: Array<{ header: SecurityHeaderName; key: string }> = [
   { header: 'strict-transport-security', key: 'finding.header.missingHsts' },
@@ -321,7 +341,7 @@ function escalateForMultipleVulnerabilities(
   return mediumCount >= MEDIUM_ESCALATION_THRESHOLD ? 'high' : 'medium';
 }
 
-type ComponentKind = 'core' | 'plugin' | 'theme';
+type ComponentKind = 'core' | 'plugin' | 'theme' | 'php';
 
 interface ComponentIdentity {
   kind: ComponentKind;
@@ -448,7 +468,11 @@ function assembleComponentFinding(
     const isConfirmedApplicable =
       affected === 'yes' && component.version.confidence === 'confirmed';
     const severity = resolveVulnerabilitySeverity(vulnerability);
-    vulnerabilities.push({ severity, confirmed: isConfirmedApplicable });
+    vulnerabilities.push({
+      severity,
+      confirmed: isConfirmedApplicable,
+      knownExploited: vulnerability.knownExploited ?? false,
+    });
 
     evidence.push({
       descriptionKey: `finding.componentVulnerability.${component.kind}.${isConfirmedApplicable ? 'confirmed' : 'potential'}.evidence`,
@@ -531,6 +555,23 @@ export function generateFindings(context: AuditContext): Finding[] {
 
   const headerData = getScannerData<HeaderScannerData>(results, 'header-scanner');
   if (headerData) findings.push(...deriveHeaderFindings(headerData));
+
+  const phpVersionValue = extractPhpVersion(headerData?.infoDisclosureHeaders['x-powered-by']);
+  if (phpVersionValue) {
+    const phpVersion: VersionInfo = {
+      value: phpVersionValue,
+      sources: ['http-header'],
+      confidence: deriveConfidence(['http-header']),
+    };
+    const phpVulnerabilities = context.getEnrichment(PHP_VULNERABILITY_ENRICHMENT) as
+      PhpVulnerability[] | undefined;
+    const phpFinding = assembleComponentFinding(
+      { kind: 'php', slug: PHP_SLUG, version: phpVersion },
+      undefined,
+      phpVulnerabilities,
+    );
+    if (phpFinding) findings.push(phpFinding);
+  }
 
   const tlsData = getScannerData<TlsProbeResult>(results, 'tls-scanner');
   if (tlsData) findings.push(...deriveTlsFindings(tlsData));

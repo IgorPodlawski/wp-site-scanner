@@ -18,7 +18,11 @@ import { buildTestContext, buildHttpResponse } from '../support/test-context.js'
 
 let nextId = 0;
 function componentFinding(
-  vulnerabilities: Array<{ severity: FindingSeverity; confirmed: boolean }>,
+  vulnerabilities: Array<{
+    severity: FindingSeverity;
+    confirmed: boolean;
+    knownExploited?: boolean;
+  }>,
   overrides: Partial<Finding> = {},
 ): Finding {
   nextId += 1;
@@ -31,7 +35,12 @@ function componentFinding(
     businessImpact: 'medium',
     recommendationKey: 'finding.component.plugin.vulnerable.recommendation',
     evidence: [],
-    component: { kind: 'plugin', slug: 'akismet', isOutdated: false, vulnerabilities },
+    component: {
+      kind: 'plugin',
+      slug: 'akismet',
+      isOutdated: false,
+      vulnerabilities: vulnerabilities.map((v) => ({ knownExploited: false, ...v })),
+    },
     ...overrides,
   });
 }
@@ -90,6 +99,21 @@ describe('rateSecurity', () => {
     context.setEnrichment(SECURITY_COVERAGE_ENRICHMENT, 'assessed');
 
     expect(rateSecurity(context, [finding]).level).toBe('attention');
+  });
+
+  it('is urgent for an unconfirmed high/critical vulnerability when CISA KEV confirms active exploitation', () => {
+    // PHP version detection is realistically always single-source (an HTTP
+    // header), so it can never earn 'confirmed' on its own — without this
+    // override, a KEV-listed, actively-exploited PHP RCE could never surface
+    // as urgent. knownExploited is a materially stronger real-world signal
+    // than our own version-confidence bookkeeping.
+    const finding = componentFinding([
+      { severity: 'critical', confirmed: false, knownExploited: true },
+    ]);
+    const context = buildTestContext();
+    context.setEnrichment(SECURITY_COVERAGE_ENRICHMENT, 'assessed');
+
+    expect(rateSecurity(context, [finding]).level).toBe('urgent');
   });
 
   it('is attention for a confirmed medium/low vulnerability', () => {

@@ -255,7 +255,9 @@ function renderVulnerabilityCard(
 /** A component finding covers a whole plugin/theme/(WordPress core) — a heading up front says which one before diving into version info and vulnerabilities, instead of that identity only ever appearing buried in the first evidence sentence. */
 function renderComponentHeading(t: Translate, component: ComponentFindingInfo): string {
   const kindLabel = text(t, `report.component.kind.${component.kind}`);
-  const title = component.kind === 'core' ? kindLabel : `${kindLabel}: ${escapeHtml(component.slug)}`;
+  // 'core'/'php' slugs are internal-only keys ('wordpress-core'/'php'), never user-facing.
+  const hasUserFacingSlug = component.kind === 'plugin' || component.kind === 'theme';
+  const title = hasUserFacingSlug ? `${kindLabel}: ${escapeHtml(component.slug)}` : kindLabel;
   return `<h3 class="finding-title">${title}</h3>`;
 }
 

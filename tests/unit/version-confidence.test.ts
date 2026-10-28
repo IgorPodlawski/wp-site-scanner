@@ -10,6 +10,10 @@ describe('deriveConfidence', () => {
     expect(deriveConfidence(['asset-query-string'])).toBe('inferred');
   });
 
+  it('caps a lone http-header source at inferred too (a page cache can serve a stale header, same risk as ?ver=)', () => {
+    expect(deriveConfidence(['http-header'])).toBe('inferred');
+  });
+
   it('caps any other single source at corroborated', () => {
     expect(deriveConfidence(['plugin-readme'])).toBe('corroborated');
     expect(deriveConfidence(['generator-meta'])).toBe('corroborated');

@@ -11,10 +11,20 @@ import type { VersionConfidence, VersionInfo, VersionSource } from '../core/type
 export const WP_VERSION_SHAPE = String.raw`\d+\.\d+(?:\.\d+)?`;
 
 /**
+ * A single source this weak never earns 'corroborated' on its own:
+ * `?ver=` on an asset (cache-busters lie — a page cache can serve a stale
+ * value from before an upgrade) and an HTTP response header (same risk —
+ * a full-page cache can just as easily serve a stale `X-Powered-By` from
+ * before a PHP upgrade, and there is realistically never a second,
+ * independent source to corroborate a server's own PHP version against).
+ */
+const WEAK_SINGLE_SOURCES = new Set<VersionSource>(['asset-query-string', 'http-header']);
+
+/**
  * Real, pure implementation of the version-confidence rules from CLAUDE.md:
- * `?ver=` on an asset is inferred at best (cache-busters lie); any other
- * single source reaches at most 'corroborated'; 'confirmed' requires two
- * independent sources agreeing.
+ * a weak single source (see `WEAK_SINGLE_SOURCES`) is inferred at best; any
+ * other single source reaches at most 'corroborated'; 'confirmed' requires
+ * two independent sources agreeing.
  */
 export function deriveConfidence(sources: readonly VersionSource[]): VersionConfidence {
   const distinctSources = new Set(sources);
@@ -24,7 +34,7 @@ export function deriveConfidence(sources: readonly VersionSource[]): VersionConf
   }
   if (distinctSources.size === 1) {
     const [only] = distinctSources;
-    return only === 'asset-query-string' ? 'inferred' : 'corroborated';
+    return WEAK_SINGLE_SOURCES.has(only!) ? 'inferred' : 'corroborated';
   }
   return 'confirmed';
 }

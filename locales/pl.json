@@ -66,6 +66,7 @@
   "report.component.kind.plugin": "Wtyczka",
   "report.component.kind.theme": "Motyw",
   "report.component.kind.core": "Rdzeń WordPress",
+  "report.component.kind.php": "PHP",
 
   "report.vulnerability.cvss": "CVSS",
   "report.vulnerability.type": "Typ",
@@ -74,6 +75,7 @@
 
   "rating.security.reason.confirmedVulnerability": "Znaleziono potwierdzoną, stosującą się podatność (istotność: {{severity}}).",
   "rating.security.reason.potentialVulnerability": "Znaleziono potencjalną podatność (istotność: {{severity}}).",
+  "rating.security.reason.knownExploitedVulnerability": "Znaleziono podatność potwierdzoną jako aktywnie wykorzystywana w atakach (CISA KEV) (istotność: {{severity}}).",
   "rating.security.reason.potentialVulnerabilities": "Znaleziono {{count}} potencjalną(e)/o niższej istotności podatność(ci).",
   "rating.security.reason.userEnumeration": "Lista użytkowników REST API jest publicznie dostępna (istotność: {{severity}}).",
   "rating.security.reason.xmlrpcEnabled": "XML-RPC jest publicznie dostępny (istotność: {{severity}}).",
@@ -146,12 +148,17 @@
   "finding.component.core.outdated.recommendation": "Zaktualizuj rdzeń WordPressa do najnowszej wersji, aby otrzymać poprawki błędów i zabezpieczeń.",
   "finding.component.core.vulnerable.recommendation": "Zaktualizuj rdzeń WordPressa najszybciej jak możliwe — szczegóły w wypisanych poniżej podatnościach.",
 
+  "finding.component.php.versionInfo.evidence": "Wykryta wersja PHP: {{installed}} (źródło: {{source}}).",
+  "finding.component.php.vulnerable.recommendation": "Zaktualizuj PHP do załatanej wersji najszybciej jak możliwe — szczegóły w wypisanych poniżej podatnościach. To zmiana po stronie serwera/hostingu, nie aktualizacja WordPressa.",
+
   "finding.componentVulnerability.plugin.confirmed.evidence": "{{title}} — potwierdzona podatność.",
   "finding.componentVulnerability.plugin.potential.evidence": "{{title}} — potencjalna podatność.",
   "finding.componentVulnerability.theme.confirmed.evidence": "{{title}} — potwierdzona podatność.",
   "finding.componentVulnerability.theme.potential.evidence": "{{title}} — potencjalna podatność.",
   "finding.componentVulnerability.core.confirmed.evidence": "{{title}} — potwierdzona podatność.",
   "finding.componentVulnerability.core.potential.evidence": "{{title}} — potencjalna podatność.",
+  "finding.componentVulnerability.php.confirmed.evidence": "{{title}} — potwierdzona podatność.",
+  "finding.componentVulnerability.php.potential.evidence": "{{title}} — potencjalna podatność.",
 
   "finding.performance.poor.evidence": "Wynik wydajności mobilnej PageSpeed tej strony to {{score}} na 100 (Google Lighthouse) — Google klasyfikuje to jako słaby.",
   "finding.performance.poor.recommendation": "Zbadaj i popraw wydajność ładowania strony na urządzeniach mobilnych — słaby wynik może szkodzić zarówno doświadczeniu użytkownika, jak i pozycji w wyszukiwarce.",

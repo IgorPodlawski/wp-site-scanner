@@ -3,6 +3,10 @@ import { z } from 'zod';
 export const envSchema = z.object({
   WPSCAN_API_TOKEN: z.string().optional(),
   PAGESPEED_API_KEY: z.string().optional(),
+  // NVD's CVE API works unauthenticated (5 req/30s) — this only raises the
+  // rate ceiling (50 req/30s) for the PHP vulnerability check, it never
+  // gates the feature on/off the way WPSCAN_API_TOKEN/PAGESPEED_API_KEY do.
+  NVD_API_KEY: z.string().optional(),
 
   AUDIT_CONTACT_URL: z.string().url().default('https://example.com/about-this-scan'),
   AUDIT_USER_AGENT: z.string().default('wp-audit/0.1 (+see AUDIT_CONTACT_URL)'),

@@ -7,6 +7,7 @@ import {
   WORDPRESS_ORG_CORE_ENRICHMENT,
   WPSCAN_PLUGIN_ENRICHMENT,
   WPSCAN_CORE_ENRICHMENT,
+  PHP_VULNERABILITY_ENRICHMENT,
 } from '@analysis/finding-engine.js';
 import { createFinding } from '@core/types/finding.js';
 import type { DefaultAuditContext } from '@core/types/audit-context.js';
@@ -212,6 +213,82 @@ describe('generateFindings', () => {
       context.addScannerResult(tlsResult(VALID_TLS));
 
       expect(generateFindings(context)).toEqual([]);
+    });
+  });
+
+  describe('PHP vulnerabilities', () => {
+    it('flags an applicable PHP vulnerability detected via the X-Powered-By header', () => {
+      const context = createContext();
+      context.addScannerResult(
+        headerResult({
+          ...ALL_HEADERS_PRESENT,
+          infoDisclosureHeaders: { server: undefined, 'x-powered-by': 'PHP/8.1.2' },
+        }),
+      );
+      context.setEnrichment(PHP_VULNERABILITY_ENRICHMENT, [
+        {
+          id: 'CVE-2026-109618',
+          title: 'PHP CGI argument injection',
+          fixedIn: '8.1.33',
+          cvssScore: 9.8,
+          references: ['CVE-2026-109618'],
+          knownExploited: true,
+        },
+      ]);
+
+      // The header being present at all also raises its own, separate
+      // info-disclosure finding (see "info-disclosure headers" above) —
+      // unrelated to the PHP vulnerability finding under test here.
+      const findings = generateFindings(context);
+      expect(findings).toHaveLength(2);
+
+      const phpFinding = findings.find((f) => f.component?.kind === 'php');
+      expect(phpFinding).toMatchObject({
+        category: 'security',
+        severity: 'critical',
+        confidence: 'inferred',
+        recommendationKey: 'finding.component.php.vulnerable.recommendation',
+        component: { kind: 'php', slug: 'php', isOutdated: false },
+      });
+      expect(phpFinding!.component?.vulnerabilities).toEqual([
+        { severity: 'critical', confirmed: false, knownExploited: true },
+      ]);
+      expect(
+        phpFinding!.evidence.some(
+          (e) => e.descriptionKey === 'finding.component.php.versionInfo.evidence',
+        ),
+      ).toBe(true);
+    });
+
+    it('flags nothing when there is no X-Powered-By header to extract a PHP version from', () => {
+      const context = createContext();
+      context.addScannerResult(headerResult(ALL_HEADERS_PRESENT));
+      context.setEnrichment(PHP_VULNERABILITY_ENRICHMENT, [
+        {
+          id: 'CVE-2026-109618',
+          title: 'PHP CGI argument injection',
+          fixedIn: '8.1.33',
+          cvssScore: 9.8,
+          references: ['CVE-2026-109618'],
+          knownExploited: true,
+        },
+      ]);
+
+      expect(generateFindings(context)).toEqual([]);
+    });
+
+    it('flags nothing when a PHP version is detected but no enrichment data was set (no applicable vulnerabilities known)', () => {
+      const context = createContext();
+      context.addScannerResult(
+        headerResult({
+          ...ALL_HEADERS_PRESENT,
+          infoDisclosureHeaders: { server: undefined, 'x-powered-by': 'PHP/8.4.27' },
+        }),
+      );
+
+      const findings = generateFindings(context);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.component).toBeUndefined();
     });
   });
 
@@ -624,7 +701,7 @@ describe('generateFindings', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: true,
-        vulnerabilities: [{ severity: 'high', confirmed: true }],
+        vulnerabilities: [{ severity: 'high', confirmed: true, knownExploited: false }],
       });
     });
   });
@@ -1196,8 +1273,8 @@ describe('calculateReportCounters', () => {
         slug: 'akismet',
         isOutdated: false,
         vulnerabilities: [
-          { severity: 'critical', confirmed: true },
-          { severity: 'medium', confirmed: true },
+          { severity: 'critical', confirmed: true, knownExploited: false },
+          { severity: 'medium', confirmed: true, knownExploited: false },
         ],
       },
     });
@@ -1215,7 +1292,7 @@ describe('calculateReportCounters', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: false,
-        vulnerabilities: [{ severity: 'high', confirmed: true }],
+        vulnerabilities: [{ severity: 'high', confirmed: true, knownExploited: false }],
       },
     });
     const themeFinding = createFinding({

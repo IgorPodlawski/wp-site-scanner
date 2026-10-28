@@ -20,23 +20,42 @@ export interface FindingEvidence {
  * selects a vulnerability's confirmed/potential evidence wording — kept here
  * too so rating-engine.ts's Security rule can read it without re-deriving it
  * from evidence description keys.
+ *
+ * `knownExploited` is PHP-specific (from `php-vulnerability-client.ts`'s
+ * cross-reference against the CISA KEV catalog of confirmed-actively-
+ * exploited CVEs) — always `false` for WordPress core/plugin/theme
+ * vulnerabilities, which have no such cross-reference. rating-engine.ts's
+ * Security rule treats a `knownExploited` vulnerability as urgent-eligible
+ * even when `confirmed` is false, since PHP's version can only ever come
+ * from a single header source (see `ComponentFindingInfo.kind === 'php'`
+ * below) and so is realistically never `confirmed` on its own — CISA's own
+ * confirmation of active exploitation is a stronger signal than our version
+ * confidence either way.
  */
 export interface ComponentVulnerabilityInfo {
   severity: FindingSeverity;
   confirmed: boolean;
+  knownExploited: boolean;
 }
 
 /**
- * Present only on a merged component (WordPress core/plugin/theme) finding.
- * `vulnerabilities` is each *applicable*, deduplicated vulnerability's
- * resolved severity + confirmed-applicable flag — the finding's own
- * `severity` is derived from these (max, with escalation — see
- * finding-engine.ts), and rating-engine.ts's Security rule reads the raw
+ * Present only on a merged component (WordPress core/plugin/theme/PHP)
+ * finding. `vulnerabilities` is each *applicable*, deduplicated
+ * vulnerability's resolved severity + confirmed-applicable flag — the
+ * finding's own `severity` is derived from these (max, with escalation —
+ * see finding-engine.ts), and rating-engine.ts's Security rule reads the raw
  * list directly rather than the escalated badge. Empty when the component is
  * outdated but has no known vulnerabilities.
+ *
+ * `kind: 'php'` is the one non-WordPress case — the PHP runtime underneath
+ * WordPress, not a WordPress component itself. Reuses this exact shape
+ * (merged finding, same vulnerability list, same rating integration)
+ * because the "one finding per thing, severity from its own vulnerability
+ * data" model applies identically; `slug` is an internal key (`'php'`),
+ * never rendered, same convention as core's `'wordpress-core'`.
  */
 export interface ComponentFindingInfo {
-  kind: 'core' | 'plugin' | 'theme';
+  kind: 'core' | 'plugin' | 'theme' | 'php';
   slug: string;
   isOutdated: boolean;
   vulnerabilities: ComponentVulnerabilityInfo[];

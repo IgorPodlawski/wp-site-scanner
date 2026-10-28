@@ -23,6 +23,7 @@ import { saveAuditResult } from '../../storage/json-store.js';
 import {
   generateFindings,
   calculateReportCounters,
+  extractPhpVersion,
   WORDPRESS_ORG_PLUGIN_ENRICHMENT,
   WORDPRESS_ORG_THEME_ENRICHMENT,
   WORDPRESS_ORG_CORE_ENRICHMENT,
@@ -30,6 +31,7 @@ import {
   WPSCAN_THEME_ENRICHMENT,
   WPSCAN_CORE_ENRICHMENT,
   PAGESPEED_ENRICHMENT,
+  PHP_VULNERABILITY_ENRICHMENT,
   SECURITY_COVERAGE_ENRICHMENT,
   MAINTENANCE_COVERAGE_ENRICHMENT,
 } from '../../analysis/finding-engine.js';
@@ -39,10 +41,12 @@ import { generateInsights } from '../../analysis/insight-engine.js';
 import type { WordPressOrgClient } from '../../integrations/wordpress-org-client.js';
 import type { WpscanClient } from '../../integrations/wpscan-client.js';
 import type { PageSpeedClient } from '../../integrations/pagespeed-client.js';
+import type { PhpVulnerabilityClient } from '../../integrations/php-vulnerability-client.js';
 import type { PageSpeedResult } from '../../integrations/enrichment-types.js';
 import type { Result } from '../../utils/result.js';
 import type { DetectedPlugin } from '../../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../../scanners/theme-scanner.js';
+import type { HeaderScannerData } from '../../scanners/header-scanner.js';
 
 const AUTH_RANK: Record<AuthorizationMode, number> = { prospect: 0, audit: 1 };
 
@@ -126,6 +130,7 @@ export class AuditOrchestrator {
     private readonly wordPressOrgClient: WordPressOrgClient,
     private readonly wpscanClient: WpscanClient,
     private readonly pageSpeedClient: PageSpeedClient,
+    private readonly phpVulnerabilityClient: PhpVulnerabilityClient,
   ) {}
 
   filterScanners(mode: AuthorizationMode): Scanner[] {
@@ -160,6 +165,7 @@ export class AuditOrchestrator {
         wpscanThemes,
         wpscanCore,
         perfLimitation,
+        phpLimitation,
       ] = await Promise.all([
         this.enrichPlugins(context),
         this.enrichThemes(context),
@@ -168,6 +174,7 @@ export class AuditOrchestrator {
         this.enrichThemeVulnerabilities(context),
         this.enrichCoreVulnerabilities(context),
         this.enrichPerformance(context),
+        this.enrichPhpVulnerabilities(context),
       ]);
 
       const orgOutcomes = [orgPlugins, orgThemes, orgCore];
@@ -177,6 +184,7 @@ export class AuditOrchestrator {
           .map((outcome) => outcome.limitation)
           .filter((l): l is string => l !== undefined),
         ...(perfLimitation ? [perfLimitation] : []),
+        ...(phpLimitation ? [phpLimitation] : []),
       );
 
       // WPScan is gated off entirely in prospect mode / without a token — that
@@ -434,6 +442,29 @@ export class AuditOrchestrator {
     if (result.value) {
       context.setEnrichment(PAGESPEED_ENRICHMENT, result.value);
     }
+    return undefined;
+  }
+
+  /**
+   * Prospect-safe (same category as WordPress.org/PageSpeed — a public
+   * third-party lookup about PHP in general, not extra probing of the
+   * target) — runs regardless of authorization mode, unlike WPScan. Only
+   * attempted at all when the homepage response actually leaked a PHP
+   * version via `X-Powered-By`, which most hardened/managed hosts disable;
+   * silently skipped (not a limitation) when it's absent, since there is
+   * nothing to look up.
+   */
+  private async enrichPhpVulnerabilities(context: AuditContext): Promise<string | undefined> {
+    const headerData = this.getScannerData<HeaderScannerData>(context, 'header-scanner');
+    const phpVersion = extractPhpVersion(headerData?.infoDisclosureHeaders['x-powered-by']);
+    if (!phpVersion) return undefined;
+
+    const result = await this.phpVulnerabilityClient.getVulnerabilities(phpVersion);
+    if (!result.ok) {
+      this.logger.warn({ error: result.error.message }, 'PHP vulnerability lookup failed');
+      return 'PHP vulnerability lookup failed';
+    }
+    context.setEnrichment(PHP_VULNERABILITY_ENRICHMENT, result.value);
     return undefined;
   }
 

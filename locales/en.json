@@ -66,6 +66,7 @@
   "report.component.kind.plugin": "Plugin",
   "report.component.kind.theme": "Theme",
   "report.component.kind.core": "WordPress Core",
+  "report.component.kind.php": "PHP",
 
   "report.vulnerability.cvss": "CVSS",
   "report.vulnerability.type": "Type",
@@ -74,6 +75,7 @@
 
   "rating.security.reason.confirmedVulnerability": "A confirmed, applicable vulnerability was found ({{severity}} severity).",
   "rating.security.reason.potentialVulnerability": "A potential vulnerability was found ({{severity}} severity).",
+  "rating.security.reason.knownExploitedVulnerability": "A vulnerability confirmed to be actively exploited in the wild (CISA KEV) was found ({{severity}} severity).",
   "rating.security.reason.potentialVulnerabilities": "{{count}} potential or lower-severity vulnerability/vulnerabilities were found.",
   "rating.security.reason.userEnumeration": "The REST API user list is publicly accessible ({{severity}} severity).",
   "rating.security.reason.xmlrpcEnabled": "XML-RPC is publicly reachable ({{severity}} severity).",
@@ -146,12 +148,17 @@
   "finding.component.core.outdated.recommendation": "Update WordPress core to the latest version to receive bug fixes and security patches.",
   "finding.component.core.vulnerable.recommendation": "Update WordPress core as soon as possible — see the listed vulnerabilities below for details.",
 
+  "finding.component.php.versionInfo.evidence": "Detected PHP version: {{installed}} (source: {{source}}).",
+  "finding.component.php.vulnerable.recommendation": "Update PHP to a patched version as soon as possible — see the listed vulnerabilities below for details. This is a server/hosting change, not a WordPress update.",
+
   "finding.componentVulnerability.plugin.confirmed.evidence": "{{title}} — confirmed vulnerability.",
   "finding.componentVulnerability.plugin.potential.evidence": "{{title}} — potential vulnerability.",
   "finding.componentVulnerability.theme.confirmed.evidence": "{{title}} — confirmed vulnerability.",
   "finding.componentVulnerability.theme.potential.evidence": "{{title}} — potential vulnerability.",
   "finding.componentVulnerability.core.confirmed.evidence": "{{title}} — confirmed vulnerability.",
   "finding.componentVulnerability.core.potential.evidence": "{{title}} — potential vulnerability.",
+  "finding.componentVulnerability.php.confirmed.evidence": "{{title}} — confirmed vulnerability.",
+  "finding.componentVulnerability.php.potential.evidence": "{{title}} — potential vulnerability.",
 
   "finding.performance.poor.evidence": "This site's mobile PageSpeed performance score is {{score}} out of 100 (Google Lighthouse) — Google classifies this as poor.",
   "finding.performance.poor.recommendation": "Investigate and improve mobile page load performance — a poor score can hurt both user experience and search ranking.",

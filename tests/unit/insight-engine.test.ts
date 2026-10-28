@@ -115,8 +115,8 @@ describe('generateInsights', () => {
         slug: 'akismet',
         isOutdated: false,
         vulnerabilities: [
-          { severity: 'critical', confirmed: true },
-          { severity: 'medium', confirmed: false },
+          { severity: 'critical', confirmed: true, knownExploited: false },
+          { severity: 'medium', confirmed: false, knownExploited: false },
         ],
       },
     });
@@ -130,7 +130,7 @@ describe('generateInsights', () => {
         kind: 'core',
         slug: 'wordpress-core',
         isOutdated: false,
-        vulnerabilities: [{ severity: 'high', confirmed: true }],
+        vulnerabilities: [{ severity: 'high', confirmed: true, knownExploited: false }],
       },
     });
 

@@ -27,7 +27,7 @@ describe('createFinding', () => {
         kind: 'plugin',
         slug: 'akismet',
         isOutdated: false,
-        vulnerabilities: [{ severity: 'high', confirmed: true }],
+        vulnerabilities: [{ severity: 'high', confirmed: true, knownExploited: false }],
       },
     });
 
@@ -35,7 +35,7 @@ describe('createFinding', () => {
       kind: 'plugin',
       slug: 'akismet',
       isOutdated: false,
-      vulnerabilities: [{ severity: 'high', confirmed: true }],
+      vulnerabilities: [{ severity: 'high', confirmed: true, knownExploited: false }],
     });
   });
 });

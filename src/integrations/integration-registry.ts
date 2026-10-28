@@ -5,6 +5,7 @@ import { resolveCacheDir } from '../storage/paths.js';
 import { WordPressOrgClient } from './wordpress-org-client.js';
 import { WpscanClient } from './wpscan-client.js';
 import { PageSpeedClient } from './pagespeed-client.js';
+import { PhpVulnerabilityClient } from './php-vulnerability-client.js';
 
 function buildHttpClientOptions(config: AppConfig): HttpClientOptions {
   return {
@@ -34,4 +35,17 @@ export function createWpscanClient(config: AppConfig, useCache: boolean): Wpscan
 export function createPageSpeedClient(config: AppConfig, useCache: boolean): PageSpeedClient {
   const cache = buildCache(config, useCache);
   return new PageSpeedClient(config, new UndiciHttpClient(), buildHttpClientOptions(config), cache);
+}
+
+export function createPhpVulnerabilityClient(
+  config: AppConfig,
+  useCache: boolean,
+): PhpVulnerabilityClient {
+  const cache = buildCache(config, useCache);
+  return new PhpVulnerabilityClient(
+    config.NVD_API_KEY,
+    new UndiciHttpClient(),
+    buildHttpClientOptions(config),
+    cache,
+  );
 }

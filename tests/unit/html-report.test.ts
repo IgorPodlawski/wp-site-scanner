@@ -144,7 +144,7 @@ describe('renderHtml', () => {
           kind: 'plugin',
           slug: 'akismet',
           isOutdated: false,
-          vulnerabilities: [{ severity: 'critical', confirmed: true }],
+          vulnerabilities: [{ severity: 'critical', confirmed: true, knownExploited: false }],
         },
       });
     }
@@ -344,7 +344,7 @@ describe('renderHtml', () => {
           kind: 'plugin',
           slug: 'akismet',
           isOutdated: false,
-          vulnerabilities: [{ severity: 'critical', confirmed: true }],
+          vulnerabilities: [{ severity: 'critical', confirmed: true, knownExploited: false }],
         },
       });
 
@@ -390,7 +390,7 @@ describe('renderHtml', () => {
           kind: 'plugin',
           slug: 'akismet',
           isOutdated: false,
-          vulnerabilities: [{ severity: 'medium', confirmed: true }],
+          vulnerabilities: [{ severity: 'medium', confirmed: true, knownExploited: false }],
         },
       });
 
@@ -456,6 +456,20 @@ describe('renderHtml', () => {
 
       expect(html).toContain('<h3 class="finding-title">WordPress Core</h3>');
       expect(html).not.toContain('WordPress Core: wordpress-core');
+    });
+
+    it('renders a plain "PHP" heading (no slug) for a php finding', async () => {
+      const finding = componentFinding({
+        kind: 'php',
+        slug: 'php',
+        isOutdated: false,
+        vulnerabilities: [],
+      });
+
+      const html = await renderHtml(baseResult({ findings: [finding] }), 'en');
+
+      expect(html).toContain('<h3 class="finding-title">PHP</h3>');
+      expect(html).not.toContain('PHP: php');
     });
 
     it('omits the heading entirely for a non-component finding', async () => {

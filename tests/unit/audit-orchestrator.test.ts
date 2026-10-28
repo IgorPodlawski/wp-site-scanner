@@ -9,6 +9,7 @@ import { saveAuditResult } from '@storage/json-store.js';
 import type { WordPressOrgClient } from '@integrations/wordpress-org-client.js';
 import type { WpscanClient } from '@integrations/wpscan-client.js';
 import type { PageSpeedClient } from '@integrations/pagespeed-client.js';
+import type { PhpVulnerabilityClient } from '@integrations/php-vulnerability-client.js';
 import { ok, err } from '@utils/result.js';
 
 vi.mock('@storage/json-store.js', () => ({ saveAuditResult: vi.fn(async () => '/tmp/fake.json') }));
@@ -60,6 +61,17 @@ function fakePageSpeedClient(overrides: Partial<PageSpeedClient> = {}): PageSpee
 
 const NO_OP_PAGESPEED_CLIENT = fakePageSpeedClient();
 
+function fakePhpVulnerabilityClient(
+  overrides: Partial<PhpVulnerabilityClient> = {},
+): PhpVulnerabilityClient {
+  return {
+    getVulnerabilities: async () => ok([]),
+    ...overrides,
+  } as unknown as PhpVulnerabilityClient;
+}
+
+const NO_OP_PHP_VULNERABILITY_CLIENT = fakePhpVulnerabilityClient();
+
 const PROSPECT_REQUEST: AuditRequest = {
   targetInput: 'https://example.com',
   requestedMode: 'prospect',
@@ -97,6 +109,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -135,6 +148,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -170,6 +184,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -197,6 +212,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     await expect(orchestrator.run(PROSPECT_REQUEST)).rejects.toThrow(SsrfRejectedError);
@@ -216,6 +232,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -266,6 +283,7 @@ describe('AuditOrchestrator.run', () => {
       wordPressOrgClient,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -304,6 +322,7 @@ describe('AuditOrchestrator.run', () => {
       wordPressOrgClient,
       NO_OP_WPSCAN_CLIENT,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -339,6 +358,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -386,6 +406,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -441,6 +462,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run({
@@ -487,6 +509,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       wpscanClient,
       NO_OP_PAGESPEED_CLIENT,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -526,6 +549,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       pageSpeedClient,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);
@@ -568,6 +592,7 @@ describe('AuditOrchestrator.run', () => {
       NO_OP_WORDPRESS_ORG_CLIENT,
       NO_OP_WPSCAN_CLIENT,
       pageSpeedClient,
+      NO_OP_PHP_VULNERABILITY_CLIENT,
     );
 
     const result = await orchestrator.run(PROSPECT_REQUEST);

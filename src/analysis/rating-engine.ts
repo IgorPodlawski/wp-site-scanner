@@ -61,16 +61,16 @@ function endpointReason(finding: Finding): RatingReason {
 }
 
 function vulnerabilityReason(vulnerability: ComponentVulnerabilityInfo): RatingReason {
-  return {
-    key: vulnerability.confirmed
+  const key = vulnerability.knownExploited
+    ? 'rating.security.reason.knownExploitedVulnerability'
+    : vulnerability.confirmed
       ? 'rating.security.reason.confirmedVulnerability'
-      : 'rating.security.reason.potentialVulnerability',
-    params: { severity: vulnerability.severity },
-  };
+      : 'rating.security.reason.potentialVulnerability';
+  return { key, params: { severity: vulnerability.severity } };
 }
 
 /**
- * Depends ONLY on actual vulnerabilities (WPScan component data) and
+ * Depends ONLY on actual vulnerabilities (WPScan/NVD component data) and
  * endpoint-scanner exposures (config backup, xmlrpc, user enumeration,
  * directory listing) — never on missing security headers (those are
  * hygiene, see html-report.ts's hygiene section / insight-engine.ts). The
@@ -78,13 +78,24 @@ function vulnerabilityReason(vulnerability: ComponentVulnerabilityInfo): RatingR
  * pair, never the component Finding's own escalated severity badge — a
  * component can show "High" on its badge (escalated from several mediums,
  * see finding-engine.ts) while Security here stays `attention`, by design.
+ *
+ * `knownExploited` (PHP vulnerabilities only, cross-referenced against
+ * CISA's KEV catalog — see `php-vulnerability-client.ts`) is treated as
+ * urgent-eligible exactly like `confirmed`, even when `confirmed` itself is
+ * `false`. PHP's version can only ever come from a single header source
+ * (`X-Powered-By`), which `deriveConfidence` already caps at `inferred` —
+ * meaning a PHP vulnerability's `confirmed` flag is realistically *never*
+ * `true` on its own. CISA's own confirmation that a CVE is being actively
+ * exploited in the wild is a stronger, independent signal than our own
+ * version-detection confidence, so it earns the same threshold rather than
+ * being permanently capped at `attention` regardless of severity.
  */
 export function rateSecurity(context: AuditContext, findings: readonly Finding[]): CategoryRating {
   const vulnerabilities = findings.flatMap((finding) => finding.component?.vulnerabilities ?? []);
   const endpointFindings = findings.filter(isEndpointFinding);
 
   const urgentVulnerabilities = vulnerabilities.filter(
-    (v) => v.confirmed && HIGH_SEVERITIES.has(v.severity),
+    (v) => (v.confirmed || v.knownExploited) && HIGH_SEVERITIES.has(v.severity),
   );
   const urgentEndpoints = endpointFindings.filter((f) => HIGH_SEVERITIES.has(f.severity));
 
