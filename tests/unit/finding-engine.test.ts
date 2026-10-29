@@ -1247,6 +1247,85 @@ describe('generateFindings', () => {
       expect(findings[0]!.component?.vulnerabilities).toHaveLength(1);
     });
   });
+
+  describe('finding ordering', () => {
+    it('ranks by severity first, then by known-vulnerability count within the same tier (core with many CVEs outranks a plugin with few, even though plugin findings are generated first)', () => {
+      // Real bug reported live: a vulnerable, outdated core (40 itemized CVEs)
+      // landed 8th in the report, below several single-digit-CVE plugin
+      // findings of the same 'high' severity tier — pure scanner-insertion
+      // order (plugins are generated before core), never re-ranked.
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'small-plugin',
+              version: { value: '1.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'small-plugin': [
+          { id: 'p1', title: 'One high issue', fixedIn: '1.1', cvssScore: 7.5, references: [] },
+        ],
+      });
+      context.addScannerResult({
+        scannerName: 'core-version-scanner',
+        status: 'ok',
+        data: {
+          version: { value: '6.4', sources: ['generator-meta'], confidence: 'confirmed' },
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_CORE_ENRICHMENT, [
+        { id: 'c1', title: 'Core issue 1', fixedIn: '6.5', cvssScore: 7.5, references: [] },
+        { id: 'c2', title: 'Core issue 2', fixedIn: '6.5', cvssScore: 7.6, references: [] },
+        { id: 'c3', title: 'Core issue 3', fixedIn: '6.5', cvssScore: 7.7, references: [] },
+      ]);
+
+      const findings = generateFindings(context);
+
+      expect(findings.every((f) => f.severity === 'high')).toBe(true);
+      expect(findings.map((f) => f.component?.kind)).toEqual(['core', 'plugin']);
+    });
+
+    it('keeps original relative order as a stable tie-break when severity and vulnerability count are both equal', () => {
+      const context = createContext();
+      context.addScannerResult({
+        scannerName: 'plugin-scanner',
+        status: 'ok',
+        data: {
+          plugins: [
+            {
+              slug: 'plugin-a',
+              version: { value: '1.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+            {
+              slug: 'plugin-b',
+              version: { value: '1.0', sources: ['plugin-readme'], confidence: 'confirmed' },
+            },
+          ],
+        },
+        durationMs: 0,
+      });
+      context.setEnrichment(WPSCAN_PLUGIN_ENRICHMENT, {
+        'plugin-a': [
+          { id: 'a1', title: 'Issue A', fixedIn: '1.1', cvssScore: 7.5, references: [] },
+        ],
+        'plugin-b': [
+          { id: 'b1', title: 'Issue B', fixedIn: '1.1', cvssScore: 7.5, references: [] },
+        ],
+      });
+
+      const findings = generateFindings(context);
+
+      expect(findings.map((f) => f.component?.slug)).toEqual(['plugin-a', 'plugin-b']);
+    });
+  });
 });
 
 describe('calculateReportCounters', () => {

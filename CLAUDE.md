@@ -375,6 +375,14 @@ Confidence still matters, just for two different things: it selects report wordi
 
 **Missing security headers and header info-disclosure are hygiene, not risk.** They're still real Findings (`category: 'security'`, same data model, same JSON) — they just never drive any rating (see "Ratings" below, which simply never looks at them) and never surface as a headline insight (`insight-engine.ts` has no rule for them). The HTML/PDF report routes them to a separate "Quick Wins" section (`html-report.ts`'s `isHygieneFinding`, matched on `recommendationKey` prefix) instead of the main Findings list, so a genuinely clean site (no known vulnerabilities) isn't made to look risky by one missing header.
 
+**Findings are ranked by importance, not left in scanner-generation order.** Found live: a vulnerable, outdated WordPress core (40 itemized CVEs, `high` severity) was rendering 8th in a real report, below seven plugin findings also at `high` severity — because `generateFindings()` simply pushes header → PHP → TLS → HTTPS → endpoint → plugin → theme → core → performance findings in that fixed structural order and nothing ever re-sorted them. `analysis/finding-engine.ts`'s `compareFindingsByImportance` (exported, also reused by `html-report.ts` instead of a duplicate local comparator — single source of truth) now sorts the array `generateFindings()` returns, so both the persisted JSON and the HTML/PDF report see the same order:
+
+1. **Severity tier**, descending (`critical > high > medium > low > info`) — unchanged, was already correct.
+2. **Within the same tier**, known-vulnerability count descending (`component.vulnerabilities.length`, `0` for non-component findings) — a component with more itemized CVEs is surfaced first. This is what fixes the core-vs-plugin case above: both were `high`, but core's 40 CVEs vastly outrank any single plugin's handful.
+3. Anything still tied (including every finding without a `component`, which always compares as `0`) keeps its original relative order — `Array.prototype.sort` is stable in V8/Node (guaranteed since ES2019), so this is deliberate, not an oversight.
+
+Considered and rejected: a hardcoded "core always outranks plugin/theme" kind-priority — it would have fixed the reported case too, but bakes in a debatable value judgment (a popular plugin's unauthenticated RCE can matter more than a handful of core XSS reports) that isn't actually true in general. Vulnerability count is evidence-based instead, in the same spirit as the Sales Insight Engine's "evidence-based only, never exaggerate" rule.
+
 ---
 
 # Ratings

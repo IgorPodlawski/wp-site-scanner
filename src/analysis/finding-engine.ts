@@ -29,6 +29,34 @@ import { getScoreBand } from './score-band.js';
 import { resolveVulnerabilitySeverity } from './vulnerability-severity.js';
 import { dedupeVulnerabilities } from './vulnerability-dedup.js';
 
+// Shared by generateFindings() (so JSON output is already ranked) and html-report.ts
+// (which re-applies it defensively in case a findings array ever reaches the renderer
+// unsorted — e.g. hand-constructed in a test).
+export const FINDING_SEVERITY_RANK: Record<FindingSeverity, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+  info: 0,
+};
+
+/**
+ * Orders findings by importance for both the persisted JSON and the report.
+ * Primary key: severity tier. Within the same tier, a component with more
+ * known, applicable vulnerabilities is surfaced first — e.g. an outdated
+ * WordPress core with 40 itemized CVEs outranks a plugin with 3, even though
+ * both land in the same severity bucket. Array.prototype.sort is stable, so
+ * anything still tied (including every non-component finding, which has no
+ * vulnerability list to compare) keeps its original relative order.
+ */
+export function compareFindingsByImportance(a: Finding, b: Finding): number {
+  const severityDiff = FINDING_SEVERITY_RANK[b.severity] - FINDING_SEVERITY_RANK[a.severity];
+  if (severityDiff !== 0) return severityDiff;
+  const vulnCountA = a.component?.vulnerabilities.length ?? 0;
+  const vulnCountB = b.component?.vulnerabilities.length ?? 0;
+  return vulnCountB - vulnCountA;
+}
+
 // The context.setEnrichment() keys AuditOrchestrator writes to and this module reads from.
 export const WORDPRESS_ORG_PLUGIN_ENRICHMENT = 'wordpress-org-plugins';
 export const WORDPRESS_ORG_THEME_ENRICHMENT = 'wordpress-org-themes';
@@ -664,7 +692,7 @@ export function generateFindings(context: AuditContext): Finding[] {
     findings.push(...derivePerformanceFindings(pageSpeedResult));
   }
 
-  return findings;
+  return findings.sort(compareFindingsByImportance);
 }
 
 const VULNERABILITY_EVIDENCE_PREFIX = 'finding.componentVulnerability.';

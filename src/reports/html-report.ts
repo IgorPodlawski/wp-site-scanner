@@ -5,7 +5,6 @@ import type {
   AuditResult,
   ComponentFindingInfo,
   Finding,
-  FindingSeverity,
   Insight,
   MeasuredScoreSummary,
   RatingLevel,
@@ -22,16 +21,9 @@ import { interpolate } from '../i18n/translate.js';
 import type { DetectedPlugin } from '../scanners/plugin-scanner.js';
 import type { DetectedTheme } from '../scanners/theme-scanner.js';
 import type { WpscanVulnerability } from '../integrations/enrichment-types.js';
+import { compareFindingsByImportance } from '../analysis/finding-engine.js';
 
 const TEMPLATE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'templates/report.html');
-
-const SEVERITY_RANK: Record<FindingSeverity, number> = {
-  critical: 4,
-  high: 3,
-  medium: 2,
-  low: 1,
-  info: 0,
-};
 
 function escapeHtml(value: string): string {
   return value
@@ -288,7 +280,7 @@ function renderFindingsSection(findings: readonly Finding[], t: Translate): stri
     return `<h2>${text(t, 'report.section.findings')}</h2><p class="empty-state">${text(t, 'report.findings.empty')}</p>`;
   }
 
-  const sorted = [...findings].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+  const sorted = [...findings].sort(compareFindingsByImportance);
   const cards = sorted
     .map((finding) => {
       const heading = finding.component ? renderComponentHeading(t, finding.component) : '';
